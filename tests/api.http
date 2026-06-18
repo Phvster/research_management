@@ -1,0 +1,322 @@
+### ════════════════════════════════════════════════════════════════════
+### API TEST FILE — Hệ thống NCKH Sinh viên
+### Extension: REST Client (Huachao Mao) cho VS Code
+###
+### HƯỚNG DẪN:
+### 1. Chạy: python manage.py seed_data
+### 2. Chạy request [0.x] để lấy token
+### 3. Copy giá trị "access" vào biến @token* tương ứng bên dưới
+### 4. Chạy các request theo thứ tự từng phần
+### ════════════════════════════════════════════════════════════════════
+
+@baseUrl = http://localhost:8000
+
+### ── Cập nhật 3 biến này sau khi chạy request Login ──────────────────
+@tokenSV = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgxNjkyMzgxLCJpYXQiOjE3ODE2ODg3ODEsImp0aSI6IjNlNWZiMGU0NmUzYTRkNzc5NzE0OWE3Zjc2NDY1Y2M0IiwidXNlcl9pZCI6IjU3In0.thB_noo2hRn3yOe0F8VcFEAnMEHOUq_6rVHV1clp-xY
+@tokenGV = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgxNjkyNDA3LCJpYXQiOjE3ODE2ODg4MDcsImp0aSI6IjAwMGRjY2UyYjU3NTQ4MDA4MmIxMjZiMzRiNWMzZGU5IiwidXNlcl9pZCI6IjQ3In0.y7jczbUeuP9IwXMZeY4gXyiHWlWTmGg9ftW7Py5R94M
+@tokenCB = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgxNjkyNDIxLCJpYXQiOjE3ODE2ODg4MjEsImp0aSI6IjczZWY0YmNlYWRiZjQzNDNhNjk4NGZhYzlkZWY1ZmQyIiwidXNlcl9pZCI6IjQyIn0.MuDv1s2LyixITwOvjeGL3w14Ts-JFjuPMD-lUSrL1Zc
+
+### ── Dữ liệu mẫu khớp với seed_data.py ──────────────────────────────
+### Tài khoản tiêu biểu:
+###   Sinh viên : sinhvien01 / Admin@123  → Đề tài DT2024003 (Đang TH)
+###   Giảng viên: giangvien01 / Admin@123 → Hướng dẫn DT2024003
+###   Cán bộ QL : canbo01 / Admin@123    → Quản lý toàn bộ
+
+@maDeTai_choduyet    = DT2024001
+@maDeTai_dangthuchien = DT2024003
+@maDeTai_chonghiemthu = DT2024006
+@maDeTai_danghiemthu  = DT2024008
+@maHoiDong           = HD001
+@maGV                = GV001
+
+
+### ════════════════════════════════════════════════════════════════════
+### PHẦN 0 — LẤY TOKEN (Chạy đầu tiên, copy "access" lên biến bên trên)
+### ════════════════════════════════════════════════════════════════════
+
+### [0.1] Login — Sinh viên sinhvien01
+# Tài khoản này có đề tài DT2024003 (Đang Thực Hiện)
+POST {{baseUrl}}/api/auth/token/
+Content-Type: application/json
+
+{
+    "username": "sinhvien01",
+    "password": "Admin@123"
+}
+
+### [0.2] Login — Giảng viên giangvien01
+# Tài khoản này đang hướng dẫn DT2024003
+POST {{baseUrl}}/api/auth/token/
+Content-Type: application/json
+
+{
+    "username": "giangvien01",
+    "password": "Admin@123"
+}
+
+### [0.3] Login — Cán bộ quản lý canbo01
+POST {{baseUrl}}/api/auth/token/
+Content-Type: application/json
+
+{
+    "username": "canbo01",
+    "password": "Admin@123"
+}
+
+### [0.4] Xem thông tin tài khoản đang đăng nhập (/api/me/)
+GET {{baseUrl}}/api/me/
+Authorization: Bearer {{tokenSV}}
+
+### [0.5] Refresh token (khi access hết hạn sau 1 giờ)
+POST {{baseUrl}}/api/auth/token/refresh/
+Content-Type: application/json
+
+{
+    "refresh": "PASTE_REFRESH_TOKEN_VAO_DAY"
+}
+
+
+### ════════════════════════════════════════════════════════════════════
+### PHẦN 1 — SINH VIÊN (dùng @tokenSV)
+### sinhvien01 đang có DT2024003 ở trạng thái DANGTHUCHIEN
+### ════════════════════════════════════════════════════════════════════
+
+### [1.1] Xem đề tài của mình (get_queryset tự lọc)
+GET {{baseUrl}}/api/de-tai/
+Authorization: Bearer {{tokenSV}}
+
+### [1.2] Xem chi tiết đề tài DT2024003
+GET {{baseUrl}}/api/de-tai/{{maDeTai_dangthuchien}}/
+Authorization: Bearer {{tokenSV}}
+
+### [1.3] Xem danh sách tiến độ đã nộp
+GET {{baseUrl}}/api/tien-do/?MaDeTai={{maDeTai_dangthuchien}}
+Authorization: Bearer {{tokenSV}}
+
+### [1.4] Xem phản hồi từ GVHD (custom action)
+# Trả về danh sách tiến độ có NhanXetGVHD (seed data đã tạo sẵn 2 nhận xét)
+GET {{baseUrl}}/api/tien-do/phan-hoi-gvhd/
+Authorization: Bearer {{tokenSV}}
+
+### [1.5] Cập nhật tiến độ mới (thêm lần thứ 4)
+# Backend tự gán MaDeTai từ hồ sơ SV, không nhận từ body
+POST {{baseUrl}}/api/tien-do/
+Content-Type: application/json
+Authorization: Bearer {{tokenSV}}
+
+{
+    "TyLeHoanThanh": 85,
+    "NoiDung": "Đã tối ưu mô hình, accuracy tăng từ 91.2% lên 94.7% trên tập test. Đang viết chương 4 báo cáo.",
+    "FileMinhChung": "DT2024003_tuan10_ketqua.pdf"
+}
+
+### [1.6] Nộp báo cáo tổng kết
+# Sau khi nộp: DeTai tự chuyển sang CHONGHIEMTHU
+POST {{baseUrl}}/api/bao-cao/
+Content-Type: application/json
+Authorization: Bearer {{tokenSV}}
+
+{
+    "MaBaoCao": "BC2024099",
+    "DuongDanFile": "baocao_tongket_DT2024003_v2.pdf",
+    "TyLeDaoVan": 11.3
+}
+
+### [1.7] Xem kết quả đánh giá (của DT2024008 đã nghiệm thu)
+# Dùng SV khác có đề tài đã nghiệm thu để test endpoint này
+# (hoặc test sau khi toàn bộ luồng CB nghiệm thu xong)
+GET {{baseUrl}}/api/de-tai/{{maDeTai_danghiemthu}}/ket-qua-danh-gia/
+Authorization: Bearer {{tokenSV}}
+
+
+### ════════════════════════════════════════════════════════════════════
+### PHẦN 2 — GIẢNG VIÊN (dùng @tokenGV)
+### giangvien01 đang hướng dẫn DT2024003
+### ════════════════════════════════════════════════════════════════════
+
+### [2.1] Xem đề tài đang hướng dẫn (get_queryset tự lọc theo GV)
+GET {{baseUrl}}/api/de-tai/
+Authorization: Bearer {{tokenGV}}
+
+### [2.2] Xem tiến độ của sinh viên trong đề tài
+GET {{baseUrl}}/api/tien-do/?MaDeTai={{maDeTai_dangthuchien}}
+Authorization: Bearer {{tokenGV}}
+
+### [2.3] Xem danh sách phân công hướng dẫn của mình
+GET {{baseUrl}}/api/huong-dan/
+Authorization: Bearer {{tokenGV}}
+
+### [2.4] Xác nhận nhận hướng dẫn đề tài (MaHuongDan=1 là của GV001)
+# Seed data đã tạo HuongDan với DaXacNhan=True, endpoint này để test lại
+PATCH {{baseUrl}}/api/huong-dan/1/xac-nhan/
+Content-Type: application/json
+Authorization: Bearer {{tokenGV}}
+
+{}
+
+### [2.5] Nhận xét tiến độ lần 3 của DT2024003 (MaTienDo=9 theo seed data)
+# Lần 3 (TyLe=70%) chưa có nhận xét trong seed data
+PATCH {{baseUrl}}/api/tien-do/9/nhan-xet/
+Content-Type: application/json
+Authorization: Bearer {{tokenGV}}
+
+{
+    "NhanXetGVHD": "Kết quả 94.7% rất tốt! Tập trung viết báo cáo, đặc biệt phần so sánh với các phương pháp liên quan. Deadline nộp báo cáo cuối là tuần tới."
+}
+
+
+### ════════════════════════════════════════════════════════════════════
+### PHẦN 3 — CÁN BỘ QUẢN LÝ (dùng @tokenCB)
+### ════════════════════════════════════════════════════════════════════
+
+### [3.1] Xem toàn bộ danh sách đề tài (Cán bộ thấy tất cả)
+GET {{baseUrl}}/api/de-tai/
+Authorization: Bearer {{tokenCB}}
+
+### [3.2] Lọc đề tài đang chờ duyệt
+GET {{baseUrl}}/api/de-tai/?TrangThai=CHODUYET
+Authorization: Bearer {{tokenCB}}
+
+### [3.3] Lọc đề tài đang thực hiện
+GET {{baseUrl}}/api/de-tai/?TrangThai=DANGTHUCHIEN
+Authorization: Bearer {{tokenCB}}
+
+### [3.4] Tìm kiếm theo tên
+GET {{baseUrl}}/api/de-tai/?search=học máy&page=1&page_size=5
+Authorization: Bearer {{tokenCB}}
+
+### [3.5] DUYỆT đề tài DT2024001 (CHODUYET → DANGTHUCHIEN)
+PATCH {{baseUrl}}/api/de-tai/{{maDeTai_choduyet}}/duyet/
+Content-Type: application/json
+Authorization: Bearer {{tokenCB}}
+
+{}
+
+### [3.6] TỪ CHỐI đề tài DT2024002 (CHODUYET → TUCHOI)
+PATCH {{baseUrl}}/api/de-tai/DT2024002/tu-choi/
+Content-Type: application/json
+Authorization: Bearer {{tokenCB}}
+
+{
+    "LyDoTuChoi": "Đề tài trùng lặp với DT2024008 đã nghiệm thu năm ngoái. Yêu cầu điều chỉnh hướng nghiên cứu sang ứng dụng thực tiễn mới hơn."
+}
+
+### [3.7] Gửi đề tài DT2024006 lên hội đồng (CHONGHIEMTHU - đã có trong seed)
+# Seed data đã tạo DT2024006 ở trạng thái CHONGHIEMTHU, test phân công HĐ
+PATCH {{baseUrl}}/api/de-tai/{{maDeTai_chonghiemthu}}/phan-cong-hoi-dong/
+Content-Type: application/json
+Authorization: Bearer {{tokenCB}}
+
+{
+    "MaHoiDong": "{{maHoiDong}}"
+}
+
+### [3.8] Nghiệm thu đề tài DT2024006 sau khi đã chấm điểm
+# (Chạy sau khi HĐ đã chấm ở [4.2])
+POST {{baseUrl}}/api/de-tai/{{maDeTai_chonghiemthu}}/nghiem-thu/
+Content-Type: application/json
+Authorization: Bearer {{tokenCB}}
+
+{}
+
+### [3.9] Xem danh sách sinh viên theo khoa
+GET {{baseUrl}}/api/sinh-vien/?Khoa=Công nghệ thông tin&page_size=10
+Authorization: Bearer {{tokenCB}}
+
+### [3.10] Xem danh sách hội đồng
+GET {{baseUrl}}/api/hoi-dong/
+Authorization: Bearer {{tokenCB}}
+
+
+### ════════════════════════════════════════════════════════════════════
+### PHẦN 4 — HỘI ĐỒNG ĐÁNH GIÁ (dùng @tokenCB cho đơn giản)
+### ════════════════════════════════════════════════════════════════════
+
+### [4.1] Xem đề tài được phân công cho HD001
+GET {{baseUrl}}/api/danh-gia/de-tai-duoc-phan-cong/?MaHoiDong={{maHoiDong}}
+Authorization: Bearer {{tokenCB}}
+
+### [4.2] Chấm điểm đề tài DT2024006
+POST {{baseUrl}}/api/danh-gia/
+Content-Type: application/json
+Authorization: Bearer {{tokenCB}}
+
+{
+    "MaHoiDong": "{{maHoiDong}}",
+    "MaDeTai": "{{maDeTai_chonghiemthu}}",
+    "DiemSo": 8.0,
+    "NhanXet": "Đề tài giải quyết bài toán thực tiễn, kết quả đạt yêu cầu. Phần trình bày cần cải thiện thêm về độ sâu lý thuyết nền."
+}
+
+### [4.3] Xem tổng kết điểm DT2024008 (đã nghiệm thu trong seed data)
+GET {{baseUrl}}/api/danh-gia/tong-ket/{{maDeTai_danghiemthu}}/
+Authorization: Bearer {{tokenCB}}
+
+### [4.4] Xem toàn bộ phiếu đánh giá
+GET {{baseUrl}}/api/danh-gia/
+Authorization: Bearer {{tokenCB}}
+
+
+### ════════════════════════════════════════════════════════════════════
+### PHẦN 5 — KIỂM TRA PHÂN QUYỀN (kỳ vọng đều trả lỗi)
+### ════════════════════════════════════════════════════════════════════
+
+### [5.1] SV cố duyệt đề tài → 403 Forbidden
+PATCH {{baseUrl}}/api/de-tai/{{maDeTai_choduyet}}/duyet/
+Content-Type: application/json
+Authorization: Bearer {{tokenSV}}
+
+{}
+
+### [5.2] SV cố tạo hội đồng → 403 Forbidden
+POST {{baseUrl}}/api/hoi-dong/
+Content-Type: application/json
+Authorization: Bearer {{tokenSV}}
+
+{
+    "MaHoiDong": "HD_HACK",
+    "TenHoiDong": "Hội đồng tự phát",
+    "QuyetDinh": "Không có"
+}
+
+### [5.3] GV cố duyệt đề tài → 403 Forbidden
+PATCH {{baseUrl}}/api/de-tai/{{maDeTai_choduyet}}/duyet/
+Content-Type: application/json
+Authorization: Bearer {{tokenGV}}
+
+{}
+
+### [5.4] Không có token → 401 Unauthorized
+GET {{baseUrl}}/api/de-tai/
+
+### [5.5] SV cố cập nhật tiến độ đề tài không phải của mình → 403
+POST {{baseUrl}}/api/tien-do/
+Content-Type: application/json
+Authorization: Bearer {{tokenSV}}
+
+{
+    "MaDeTai": "DT2024008",
+    "TyLeHoanThanh": 50,
+    "NoiDung": "Cố ý cập nhật đề tài người khác"
+}
+
+
+### ════════════════════════════════════════════════════════════════════
+### PHẦN 6 — LUỒNG E2E HOÀN CHỈNH
+### Chạy theo đúng thứ tự số để test toàn bộ vòng đời đề tài
+### ════════════════════════════════════════════════════════════════════
+###
+###  0.1 → 0.2 → 0.3   : Lấy token 3 vai trò
+###  3.5                : CB duyệt DT2024001 → DANGTHUCHIEN
+###  1.5                : SV cập nhật tiến độ lần 4
+###  2.5                : GV nhận xét tiến độ lần 3
+###  1.4                : SV xem phản hồi GVHD
+###  1.6                : SV nộp báo cáo → DT tự chuyển CHONGHIEMTHU
+###  3.7                : CB phân công HD001 cho DT2024006
+###  4.2                : HĐ chấm điểm DT2024006
+###  3.8                : CB nghiệm thu DT2024006 → DANGHIEMTHU
+###  4.3                : Xem tổng kết điểm DT2024008 (đã có sẵn)
+###  1.7                : SV xem kết quả đánh giá
+###  5.1 → 5.5          : Kiểm tra phân quyền (toàn bộ phải lỗi)
+###
+### ════════════════════════════════════════════════════════════════════
