@@ -196,15 +196,40 @@ class DeTaiViewSet(BaseViewSet):
         return DeTaiSerializer
 
     def perform_create(self, serializer):
-        """Quy trình đăng ký đề tài (giữ nguyên từ bước trước)."""
+        """Quy trình đăng ký đề tài kèm theo nhóm."""
         sv = _get_sinh_vien(self.request.user)
         if sv is None:
             raise ValidationError("Không tìm thấy hồ sơ Sinh viên.")
         if sv.MaDeTai is not None:
             raise ValidationError("Bạn đã có đề tài. Không thể đăng ký thêm.")
+
+        # Lấy danh sách thành viên từ validated_data (nếu không truyền lên sẽ là mảng rỗng)
+        danh_sach_thanh_vien = serializer.validated_data.pop("DanhSachThanhVien", [])
+        # Lấy mã giảng viên ra khỏi data
+        ma_gv = serializer.validated_data.pop("MaGV_HuongDan", None)
+
+        # Tránh trường hợp sinh viên đăng ký tự điền mã của chính mình vào mảng
+        if sv.MaSV in danh_sach_thanh_vien:
+            danh_sach_thanh_vien.remove(sv.MaSV)
+
+        # 1. Lưu đề tài mới với trạng thái Chờ duyệt
         de_tai = serializer.save(TrangThai=DeTai.TrangThaiDeTai.CHO_DUYET)
+
+        # 2. Gán đề tài cho sinh viên thực hiện đăng ký (nhóm trưởng)
         sv.MaDeTai = de_tai
         sv.save(update_fields=["MaDeTai"])
+
+        # 3. Gán đề tài cho các thành viên khác trong nhóm (nếu có)
+        if danh_sach_thanh_vien:
+            SinhVien.objects.filter(MaSV__in=danh_sach_thanh_vien).update(MaDeTai=de_tai)
+        # 4. THÊM MỚI: Tạo lời mời giảng viên hướng dẫn
+        if ma_gv:
+            HuongDan.objects.create(
+                MaDeTai=de_tai,
+                MaGV_id=ma_gv,
+                VaiTro="Chủ nhiệm",
+                DaXacNhan=False  # Đánh dấu là chưa xác nhận (chờ GV duyệt)
+            )
 
     # ── Custom Action: Duyệt đề tài ─────────────────────────────────────────
     @action(detail=True, methods=["patch"], url_path="duyet")
@@ -578,6 +603,34 @@ class HuongDanViewSet(BaseViewSet):
             "DaXacNhan"  : True,
             "NgayXacNhan": huong_dan.NgayXacNhan,
         })
+    # ═══════════════════════════════════════════════════════════════════════
+    # [GIẢNG VIÊN] Từ chối nhận hướng dẫn đề tài
+    # DELETE /api/huong-dan/{MaHuongDan}/tu-choi/
+    # ═══════════════════════════════════════════════════════════════════════
+    @action(detail=True, methods=["delete"], url_path="tu-choi")
+    def tu_choi_huong_dan(self, request, pk=None):
+        vai_tro = _get_vai_tro(request.user)
+        if vai_tro != TaiKhoan.QuyenHanChoices.GIANG_VIEN:
+            raise PermissionDenied("Chỉ Giảng viên mới được từ chối hướng dẫn.")
+
+        huong_dan  = self.get_object()
+        giang_vien = _get_giang_vien(request.user)
+
+        # Kiểm tra đây có phải yêu cầu gửi cho GV đang đăng nhập không
+        if huong_dan.MaGV != giang_vien:
+            raise PermissionDenied("Bạn không thể từ chối yêu cầu của người khác.")
+
+        # Nếu đã xác nhận rồi thì không cho phép hủy ngang dễ dàng
+        if huong_dan.DaXacNhan:
+            raise ValidationError("Bạn đã xác nhận hướng dẫn đề tài này rồi. Nếu muốn hủy, hãy liên hệ Cán bộ Quản lý.")
+
+        # Xóa bản ghi hướng dẫn để nhóm sinh viên biết là bị từ chối và có thể mời GV khác
+        ma_de_tai = huong_dan.MaDeTai_id
+        huong_dan.delete()
+
+        return Response({
+            "message": f"Đã từ chối hướng dẫn đề tài [{ma_de_tai}].",
+        }, status=status.HTTP_200_OK)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

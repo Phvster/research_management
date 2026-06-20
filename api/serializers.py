@@ -320,10 +320,57 @@ class DeTaiDangKySerializer(serializers.ModelSerializer):
       gửi trạng thái khác, hệ thống sẽ tự gán "CHODUYET" trong view.
     - MaDeTai bắt buộc phải do người dùng cung cấp (không auto-generate).
     """
+    DanhSachThanhVien = serializers.ListField(
+        child=serializers.CharField(max_length=20),
+        write_only=True,
+        required=False,
+        allow_empty=True,
+        help_text="Danh sách mã sinh viên của các thành viên cùng nhóm."
+    )
+    MaGV_HuongDan = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="Mã giảng viên mà nhóm muốn mời hướng dẫn."
+    )
     class Meta:
         model  = DeTai
         fields = ["MaDeTai", "TenDeTai", "TomTat"]
         # Không có "TrangThai" → bị chặn hoàn toàn từ phía input
+
+    # THÊM MỚI: Kiểm tra xem giảng viên có tồn tại không
+    def validate_MaGV_HuongDan(self, value):
+        if value:
+            from .models import GiangVien
+            if not GiangVien.objects.filter(MaGV=value).exists():
+                raise serializers.ValidationError(f"Không tìm thấy Giảng viên với mã '{value}'.")
+        return value
+    
+    def validate_DanhSachThanhVien(self, value):
+        from .models import SinhVien
+        
+        # Loại bỏ các mã trùng lặp (nếu user vô tình gửi trùng)
+        ma_sv_list = list(set(value))
+
+        # Giới hạn số lượng thành viên (ví dụ tối đa 5 người 1 nhóm)
+        if len(ma_sv_list) > 4: 
+            raise serializers.ValidationError("Một nhóm tối đa 5 thành viên (bao gồm cả bạn).")
+
+        thanh_viens = SinhVien.objects.filter(MaSV__in=ma_sv_list)
+
+        # 1. Kiểm tra xem có mã SV nào không tồn tại trong hệ thống không
+        found_ids = set(thanh_viens.values_list('MaSV', flat=True))
+        missing = set(ma_sv_list) - found_ids
+        if missing:
+            raise serializers.ValidationError(f"Không tìm thấy hồ sơ sinh viên có mã: {', '.join(missing)}")
+
+        # 2. Kiểm tra xem có SV nào đã tham gia đề tài khác chưa
+        da_co_de_tai = thanh_viens.exclude(MaDeTai__isnull=True)
+        if da_co_de_tai.exists():
+            invalid_sv = [sv.MaSV for sv in da_co_de_tai]
+            raise serializers.ValidationError(f"Các sinh viên sau đã tham gia đề tài khác: {', '.join(invalid_sv)}")
+
+        return ma_sv_list
 
 
 class TienDoTaoMoiSerializer(serializers.ModelSerializer):
