@@ -136,7 +136,7 @@ class DeTaiViewSet(BaseViewSet):
 
     # ── Cấu hình Filtering & Search ─────────────────────────────────────────
     filterset_class = DeTaiFilter           # Dùng class filter đã định nghĩa
-    search_fields   = ["TenDeTai", "TomTat"]  # ?search=quản lý
+    search_fields   = ["MaDeTai", "TenDeTai", "TomTat"]  # ?search=quản lý
     ordering_fields = ["MaDeTai", "TenDeTai", "TrangThai"]
     ordering        = ["MaDeTai"]
 
@@ -595,7 +595,7 @@ class TienDoViewSet(BaseViewSet):
     ordering         = ["-NgayCapNhat"]
     pagination_class = LonPagination    # Override: 20 bản ghi/trang
     filterset_fields = ["MaDeTai"]
-
+    parser_classes = [MultiPartParser, FormParser]
     def get_permissions(self):
         if self.action == "create":
             return [IsSinhVien()]
@@ -973,8 +973,7 @@ from rest_framework.response import Response
 def lay_thong_tin_ca_nhan(request):
     """
     GET /api/me/
-    Trả về thông tin cơ bản của tài khoản đang đăng nhập.
-    Frontend dùng để hiển thị Dashboard theo vai trò.
+    Trả về thông tin chi tiết của tài khoản đang đăng nhập bao gồm cả mã định danh theo vai trò.
     """
     username = request.user.username
     try:
@@ -982,24 +981,29 @@ def lay_thong_tin_ca_nhan(request):
     except TaiKhoan.DoesNotExist:
         return Response({"error": "Không tìm thấy tài khoản."}, status=404)
 
-    # Lấy thêm tên hiển thị dựa theo vai trò
     ten_hien_thi = username
+    ma_dinh_danh = ""  # THÊM MỚI: Dùng để lưu MaSV, MaGV hoặc MaCB
+
     try:
         if tai_khoan.QuyenHan == TaiKhoan.QuyenHanChoices.SINH_VIEN:
             sv = SinhVien.objects.get(TenDangNhap=tai_khoan)
             ten_hien_thi = sv.TenSV
+            ma_dinh_danh = sv.MaSV  # Lấy Mã Sinh Viên
         elif tai_khoan.QuyenHan == TaiKhoan.QuyenHanChoices.GIANG_VIEN:
             gv = GiangVien.objects.get(TenDangNhap=tai_khoan)
             ten_hien_thi = gv.TenGV
+            ma_dinh_danh = gv.MaGV  # Lấy Mã Giảng Viên
         elif tai_khoan.QuyenHan == TaiKhoan.QuyenHanChoices.QUAN_LY:
             cb = CanBoQuanLy.objects.get(TenDangNhap=tai_khoan)
             ten_hien_thi = cb.TenCB
+            ma_dinh_danh = cb.MaCB  # Lấy Mã Cán Bộ
     except Exception:
         pass
 
     return Response({
         "TenDangNhap" : tai_khoan.TenDangNhap,
         "TenHienThi"  : ten_hien_thi,
+        "MaDinhDanh"  : ma_dinh_danh,  # THÊM MỚI
         "QuyenHan"    : tai_khoan.QuyenHan,
         "QuyenHan_display": tai_khoan.get_QuyenHan_display(),
         "TrangThai"   : tai_khoan.TrangThai,

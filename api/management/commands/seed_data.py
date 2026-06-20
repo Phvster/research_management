@@ -26,7 +26,7 @@ KHOA_LIST = [
     "Công nghệ thông tin",
     "An toàn thông tin",
     "Kỹ thuật mật mã",
-    "Toán học ứng dụng",
+    "Kỹ thuật điện tử - Viễn thông",
 ]
 
 LOP_LIST = ["L01", "L02", "L03", "L04", "AT01", "AT02", "KM01"]

@@ -156,7 +156,7 @@ Authorization: Bearer {{tokenGV}}
 
 ### [2.5] Nhận xét tiến độ lần 3 của DT2024003 (MaTienDo=9 theo seed data)
 # Lần 3 (TyLe=70%) chưa có nhận xét trong seed data
-PATCH {{baseUrl}}/api/tien-do/9/nhan-xet/
+PATCH {{baseUrl}}/api/tien-do/18/nhan-xet/
 Content-Type: application/json
 Authorization: Bearer {{tokenGV}}
 
@@ -193,7 +193,7 @@ Authorization: Bearer {{tokenCB}}
 {}
 
 ### [3.6] TỪ CHỐI đề tài DT2024002 (CHODUYET → TUCHOI)
-PATCH {{baseUrl}}/api/de-tai/DT2024002/tu-choi/
+PATCH {{baseUrl}}/api/de-tai/CT080148/tu-choi/
 Content-Type: application/json
 Authorization: Bearer {{tokenCB}}
 
@@ -300,6 +300,8 @@ Authorization: Bearer {{tokenSV}}
     "NoiDung": "Cố ý cập nhật đề tài người khác"
 }
 
+# Bài báo
+curl http://localhost:8000/api/bai-bao/
 
 ### ════════════════════════════════════════════════════════════════════
 ### PHẦN 6 — LUỒNG E2E HOÀN CHỈNH

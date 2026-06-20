@@ -74,14 +74,26 @@ class DeTaiSerializer(serializers.ModelSerializer):
         source="get_TrangThai_display",
         read_only=True,
     )
+    chu_nhiem = serializers.SerializerMethodField()
+    gv_huong_dan = serializers.SerializerMethodField()
 
     class Meta:
         model  = DeTai
         fields = [
             "MaDeTai", "TenDeTai", "TomTat",
             "TrangThai", "TrangThai_display",
+            "chu_nhiem", "gv_huong_dan"
         ]
+    # THÊM 2 HÀM NÀY ĐỂ LẤY DATA DYNAMIC
+    def get_chu_nhiem(self, obj):
+        sv = obj.sinh_viens.first() # Dựa theo related_name="sinh_viens" trong model SinhVien
+        return sv.TenSV if sv else "Chưa có"
 
+    def get_gv_huong_dan(self, obj):
+        hd = obj.huong_dans.first() # Dựa theo related_name="huong_dans" trong model HuongDan
+        if hd and getattr(hd, 'MaGV', None):
+            return f"{hd.MaGV.HocHamHocVi} {hd.MaGV.TenGV}".strip()
+        return "Chưa phân công"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 3. SINH VIÊN

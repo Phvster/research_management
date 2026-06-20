@@ -80,7 +80,7 @@ class DeTai(models.Model):
         verbose_name="Trạng thái",
     )
 
-    MaHoiDong = models.ForeignKey(          # ← Thêm mới
+    MaHoiDong = models.ForeignKey(        
         "HoiDong",
         on_delete=models.SET_NULL,
         null=True,
@@ -88,8 +88,9 @@ class DeTai(models.Model):
         related_name="de_tais",
         verbose_name="Hội đồng đánh giá",
     )
-    DiemTongHop = models.FloatField(null=True, blank=True)  # ← Thêm mới
-    LyDoTuChoi  = models.TextField(blank=True, default="")  # ← Thêm mới
+    DiemTongHop = models.FloatField(null=True, blank=True)  
+    LyDoTuChoi  = models.TextField(blank=True, default="")  
+    NgayTao = models.DateTimeField(auto_now_add=True, verbose_name="Ngày đăng ký", null=True)
 
     class Meta:
         db_table = "DeTai"
@@ -297,10 +298,11 @@ class TienDo(models.Model):
     )
     # Lưu đường dẫn tương đối đến file minh chứng trên server
     # Ví dụ: "uploads/tiendo/de_tai_001_tuan3.pdf"
-    FileMinhChung = models.CharField(
-        max_length=500,
+    FileMinhChung = models.FileField(
+        upload_to="tien_do_files/%Y/%m/",
         blank=True,
-        verbose_name="File minh chứng (đường dẫn)",
+        null=True,
+        verbose_name="File minh chứng",
     )
     # Tự động ghi lại thời điểm cập nhật
     NgayCapNhat = models.DateTimeField(
@@ -354,6 +356,8 @@ class BaoCao(models.Model):
             validate_file_size,
         ],
         verbose_name="File báo cáo",
+        null=True,
+        blank=True
     )
 
     # Tỷ lệ % đạo văn từ công cụ kiểm tra (có thể chưa có khi mới nộp)
