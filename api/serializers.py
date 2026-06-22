@@ -4,7 +4,7 @@ from rest_framework import serializers
 from .models import (
     TaiKhoan, DeTai, SinhVien, GiangVien,
     CanBoQuanLy, HuongDan, TienDo,
-    BaoCao, HoiDong, DanhGia, ThanhVienHoiDong
+    BaoCao, HoiDong, DanhGia, ThanhVienHoiDong, TaiLieu
 )
 
 
@@ -23,9 +23,22 @@ class TaiKhoanTomTatSerializer(serializers.ModelSerializer):
 
 class DeTaiTomTatSerializer(serializers.ModelSerializer):
     """Thông tin tóm tắt DeTai — dùng để nhúng vào SinhVien, TienDo, BaoCao..."""
+    chu_nhiem = serializers.SerializerMethodField()
+    gv_huong_dan = serializers.SerializerMethodField()
+
     class Meta:
         model  = DeTai
-        fields = ["MaDeTai", "TenDeTai", "TrangThai"]
+        fields = ["MaDeTai", "TenDeTai", "TrangThai", "chu_nhiem", "gv_huong_dan"]
+
+    def get_chu_nhiem(self, obj):
+        sv = obj.sinh_viens.first() 
+        return sv.TenSV if sv else "Chưa có"
+
+    def get_gv_huong_dan(self, obj):
+        hd = obj.huong_dans.first() 
+        if hd and getattr(hd, 'MaGV', None):
+            return f"{hd.MaGV.HocHamHocVi} {hd.MaGV.TenGV}".strip()
+        return "Chưa phân công"
 
 
 class GiangVienTomTatSerializer(serializers.ModelSerializer):
@@ -82,7 +95,7 @@ class DeTaiSerializer(serializers.ModelSerializer):
         fields = [
             "MaDeTai", "TenDeTai", "TomTat",
             "TrangThai", "TrangThai_display",
-            "chu_nhiem", "gv_huong_dan"
+            "chu_nhiem", "gv_huong_dan", "MaHoiDong", "DiemTongHop"
         ]
     # THÊM 2 HÀM NÀY ĐỂ LẤY DATA DYNAMIC
     def get_chu_nhiem(self, obj):
@@ -126,6 +139,7 @@ class SinhVienSerializer(serializers.ModelSerializer):
             "TenDangNhap", "MaDeTai",
             # Object để đọc (read)
             "tai_khoan_info", "de_tai_info",
+            "Email", "SoDienThoai",
         ]
 
 
@@ -141,6 +155,7 @@ class GiangVienSerializer(serializers.ModelSerializer):
     tai_khoan_info = TaiKhoanTomTatSerializer(
         source="TenDangNhap",
         read_only=True,
+        
     )
 
     class Meta:
@@ -149,6 +164,7 @@ class GiangVienSerializer(serializers.ModelSerializer):
             "MaGV", "TenGV", "HocHamHocVi",
             "TenDangNhap",
             "tai_khoan_info",
+            "Email", "SoDienThoai",
         ]
 
 
@@ -172,6 +188,7 @@ class CanBoQuanLySerializer(serializers.ModelSerializer):
             "MaCB", "TenCB", "PhongBan",
             "TenDangNhap",
             "tai_khoan_info",
+            "Email", "SoDienThoai",
         ]
 
 
@@ -226,15 +243,41 @@ class TienDoSerializer(serializers.ModelSerializer):
     class Meta:
         model  = TienDo
         fields = [
-            "MaTienDo", "TyLeHoanThanh", "NoiDung",
+            "MaTienDo", "TyLeHoanThanh",
             "FileMinhChung", "NgayCapNhat",
             # ID để ghi
             "MaDeTai",
             # Object để đọc
             "de_tai_info",
+            "NhanXetGVHD", "NgayNhanXet", "DiemGVHD"
         ]
         # NgayCapNhat do auto_now_add, không cho phép ghi đè
         read_only_fields = ["MaTienDo", "NgayCapNhat"]
+
+class HoiDongSerializer(serializers.ModelSerializer):
+    DanhSachThanhVien = serializers.SerializerMethodField()
+    danh_sach_de_tai = serializers.SerializerMethodField()
+
+    class Meta:
+        from .models import HoiDong
+        model = HoiDong
+        fields = [
+            'MaHoiDong', 
+            'TenHoiDong', 
+            'QuyetDinh', 
+            'DanhSachThanhVien'
+            'danh_sach_de_tai'
+        ]
+    def get_DanhSachThanhVien(self, obj):
+        from .models import ThanhVienHoiDong
+        # Tìm tất cả Thành viên có Khóa ngoại MaHoiDong trùng với Hội đồng hiện tại
+        thanh_viens = ThanhVienHoiDong.objects.filter(MaHoiDong=obj)
+        # Đóng gói danh sách đó bằng Serializer con và trả về
+        return ThanhVienHoiDongTomTatSerializer(thanh_viens, many=True).data
+    def get_danh_sach_de_tai(self, obj):
+        return obj.de_tais.values("MaDeTai", "TenDeTai", "TrangThai")
+
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -242,37 +285,121 @@ class TienDoSerializer(serializers.ModelSerializer):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class BaoCaoSerializer(serializers.ModelSerializer):
-    """
-    Nested Serializer cho BaoCao:
-    - de_tai_info: nhúng tên đề tài để Frontend biết báo cáo thuộc về đề tài nào
-    """
-    de_tai_info = DeTaiTomTatSerializer(
-        source="MaDeTai",
-        read_only=True,
-    )
+    de_tai_info = DeTaiTomTatSerializer(source="MaDeTai", read_only=True)
+    
+    # 🌟 VÁ LỖI 2: Chuyển các trường Hội đồng và File sang dạng MethodField để xử lý dự phòng
+    MaHoiDong = serializers.SerializerMethodField()
+    hoi_dong_info = serializers.SerializerMethodField()
+    FileBaoCao = serializers.SerializerMethodField()
+    
+    VaiTroHoiDong = serializers.SerializerMethodField()
 
     class Meta:
         model  = BaoCao
+        read_only_fields = ['MaBaoCao', 'DiemTrungBinh']
         fields = [
-            "MaBaoCao", "DuongDanFile",
-            "TyLeDaoVan", "NgayNop",
-            # ID để ghi
-            "MaDeTai",
-            # Object để đọc
-            "de_tai_info",
+            "MaBaoCao", "DuongDanFile", "FileBaoCao", "TyLeDaoVan", "NgayNop",
+            "MaDeTai", "de_tai_info", "DiemTrungBinh", "VaiTroHoiDong",
+            "MaHoiDong", "hoi_dong_info"
         ]
 
+    def get_MaHoiDong(self, obj):
+        if obj.MaHoiDong_id:
+            return obj.MaHoiDong_id
+        if obj.MaDeTai and obj.MaDeTai.MaHoiDong_id:
+            return obj.MaDeTai.MaHoiDong_id
+        return None
+
+    # Hàm tự động đóng gói dữ liệu Hội đồng chi tiết dự phòng từ Đề Tài
+    def get_hoi_dong_info(self, obj):
+        hoi_dong = obj.MaHoiDong or (obj.MaDeTai.MaHoiDong if obj.MaDeTai else None)
+        if hoi_dong:
+            return HoiDongSerializer(hoi_dong, context=self.context).data
+        return None
+
+    # Hàm xử lý quyền hạn và build đường link file tuyệt đối (http://localhost:8000/media/...)
+    def get_FileBaoCao(self, obj):
+        co_quyen = self.context.get("user_co_quyen_xem_file", False)
+        request = self.context.get("request")
+        
+        # Double-check phòng hờ: Nếu là Giảng viên hoặc Staff thì mặc định có quyền
+        if request and (request.user.is_staff or hasattr(request.user, 'giang_vien')):
+            co_quyen = True
+
+        if not co_quyen:
+            return None
+
+        # Hỗ trợ nhận diện linh hoạt cả 2 cách đặt tên trường: FileBaoCao hoặc DuongDanFile
+        file_field = getattr(obj, 'FileBaoCao', None) or getattr(obj, 'DuongDanFile', None)
+        if not file_field:
+            return None
+
+        try:
+            url = file_field.url
+            return request.build_absolute_uri(url) if request else url
+        except AttributeError:
+            return None
+
+    def get_VaiTroHoiDong(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return None
+
+        from .models import GiangVien, ThanhVienHoiDong
+        try:
+            gv = GiangVien.objects.get(MaTaiKhoan=request.user)
+        except GiangVien.DoesNotExist:
+            return None
+
+        if not obj.MaHoiDong_id:
+            return None
+
+        thanh_vien = ThanhVienHoiDong.objects.filter(
+            MaHoiDong=obj.MaHoiDong_id, 
+            MaGV=gv
+        ).first()
+
+        if thanh_vien:
+            return thanh_vien.get_VaiTroHD_display() if hasattr(thanh_vien, 'get_VaiTroHD_display') else thanh_vien.VaiTroHD
+        return None
+
+
+
+class ThanhVienHoiDongTomTatSerializer(serializers.ModelSerializer):
+    giang_vien_info = GiangVienTomTatSerializer(source="MaGV", read_only=True)
+    class Meta:
+        from .models import ThanhVienHoiDong
+        model = ThanhVienHoiDong
+        # Lưu ý: Sửa 'VaiTroHD' thành tên cột lưu vai trò đúng trong Database của ní
+        fields = ['MaGV', 'VaiTroHD', 'giang_vien_info']
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 9. HỘI ĐỒNG
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class HoiDongSerializer(serializers.ModelSerializer):
-    """Serializer đầy đủ cho HoiDong — không có FK nên không cần nested."""
+    DanhSachThanhVien = serializers.SerializerMethodField()
+    danh_sach_de_tai = serializers.SerializerMethodField()
 
     class Meta:
-        model  = HoiDong
-        fields = ["MaHoiDong", "TenHoiDong", "QuyetDinh"]
+        from .models import HoiDong
+        model = HoiDong
+        fields = [
+            'MaHoiDong', 
+            'TenHoiDong', 
+            'QuyetDinh', 
+            'DanhSachThanhVien',
+            'danh_sach_de_tai'
+        ]
+    def get_DanhSachThanhVien(self, obj):
+        from .models import ThanhVienHoiDong
+        # Tìm tất cả Thành viên có Khóa ngoại MaHoiDong trùng với Hội đồng hiện tại
+        thanh_viens = ThanhVienHoiDong.objects.filter(MaHoiDong=obj)
+        # Đóng gói danh sách đó bằng Serializer con và trả về
+        return ThanhVienHoiDongTomTatSerializer(thanh_viens, many=True).data
+    def get_danh_sach_de_tai(self, obj):
+        return obj.de_tais.values("MaDeTai", "TenDeTai", "TrangThai")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -335,7 +462,13 @@ class DeTaiDangKySerializer(serializers.ModelSerializer):
     )
     class Meta:
         model  = DeTai
-        fields = ["MaDeTai", "TenDeTai", "TomTat"]
+        fields = [
+            "MaDeTai", 
+            "TenDeTai", 
+            "TomTat", 
+            "DanhSachThanhVien", 
+            "MaGV_HuongDan"
+        ]
         # Không có "TrangThai" → bị chặn hoàn toàn từ phía input
 
     # THÊM MỚI: Kiểm tra xem giảng viên có tồn tại không
@@ -386,7 +519,7 @@ class TienDoTaoMoiSerializer(serializers.ModelSerializer):
     class Meta:
         model  = TienDo
         fields = [
-            "MaTienDo", "TyLeHoanThanh", "NoiDung",
+            "MaTienDo", "TyLeHoanThanh",
             "FileMinhChung", "NgayCapNhat",
             "MaDeTai", "de_tai_info",
         ]
@@ -433,7 +566,7 @@ class BaoCaoChiTietSerializer(serializers.ModelSerializer):
         model  = BaoCao
         fields = [
             "MaBaoCao", "FileBaoCao", "TyLeDaoVan",
-            "NgayNop", "MaDeTai", "de_tai_info",
+            "NgayNop", "MaDeTai", "de_tai_info", "MaHoiDong"
         ]
 
     def get_FileBaoCao(self, obj):
@@ -453,6 +586,7 @@ class DanhGiaChamDiemSerializer(serializers.ModelSerializer):
     ThanhVienCham được gán tự động trong view dựa trên GV đang đăng nhập,
     không nhận từ body — tránh giả mạo chấm thay người khác.
     """
+    
     class Meta:
         model  = DanhGia
         fields = ["MaDanhGia", "DiemSo", "NhanXet", "MaHoiDong", "MaDeTai"]
@@ -483,7 +617,7 @@ class DanhGiaXemSerializer(serializers.ModelSerializer):
         return {
             "MaGV"  : gv.MaGV,
             "TenGV" : gv.TenGV,
-            "VaiTro": obj.ThanhVienCham.get_VaiTro_display(),
+            "VaiTro": obj.ThanhVienCham.get_VaiTroHD_display(),
         }
 
 # api/serializers.py — THÊM VÀO CUỐI FILE
@@ -522,11 +656,12 @@ class TienDoVoiNhanXetSerializer(serializers.ModelSerializer):
             "MaTienDo", "TyLeHoanThanh", "NoiDung",
             "FileMinhChung", "NgayCapNhat",
             "NhanXetGVHD", "NgayNhanXet",   # ← Phản hồi từ GVHD
+            "DiemGVHD",
             "MaDeTai", "de_tai_info",
         ]
         read_only_fields = [
-            "MaTienDo", "NgayCapNhat",
-            "NhanXetGVHD", "NgayNhanXet",   # SV không được tự sửa nhận xét
+            "MaTienDo", "NgayCapNhat", "DiemGVHD",
+            "NhanXetGVHD", "NgayNhanXet",
         ]
 
 
@@ -538,6 +673,15 @@ class NhanXetGVHDSerializer(serializers.Serializer):
         max_length=2000,
         error_messages={"required": "Nội dung nhận xét không được để trống."}
     )
+    DiemGVHD = serializers.FloatField(
+        required=False, 
+        min_value=0.0, 
+        max_value=10.0,
+        error_messages={
+            "min_value": "Điểm số không được nhỏ hơn 0.",
+            "max_value": "Điểm số không được lớn hơn 10."
+        }
+    )
 
 
 class HuongDanSerializer(serializers.ModelSerializer):
@@ -548,11 +692,11 @@ class HuongDanSerializer(serializers.ModelSerializer):
     class Meta:
         model  = HuongDan
         fields = [
-            "MaHuongDan", "VaiTro", "DaXacNhan", "NgayXacNhan",
+            "MaHuongDan", "VaiTro", "NgayXacNhan",
             "MaDeTai", "MaGV",
-            "de_tai_info", "giang_vien_info",
+            "de_tai_info", "giang_vien_info", "TrangThaiXacNhan"
         ]
-        read_only_fields = ["MaHuongDan", "DaXacNhan", "NgayXacNhan"]
+        read_only_fields = ["MaHuongDan", "TrangThaiXacNhan", "NgayXacNhan"]
 
 
 class PhanCongHoiDongSerializer(serializers.Serializer):
@@ -665,9 +809,118 @@ class PhanCongThanhVienSerializer(serializers.Serializer):
     Đây là nơi RÀNG BUỘC CONFLICT OF INTEREST được kiểm tra.
     """
     MaGV   = serializers.CharField(required=True)
-    VaiTro = serializers.ChoiceField(choices=ThanhVienHoiDong.VaiTroHD.choices)
+    VaiTro = serializers.ChoiceField(
+        choices=[
+            "Chủ tịch hội đồng", 
+            "Thư ký hội đồng", 
+            "Ủy viên phản biện 1", 
+            "Ủy viên phản biện 2", 
+            "Ủy viên hội đồng"
+        ],
+        error_messages={
+            "invalid_choice": "Vai trò không hợp lệ. Vui lòng chọn đúng vai trò trong Hội đồng."
+        }
+    )
 
     def validate_MaGV(self, value):
         if not GiangVien.objects.filter(pk=value).exists():
             raise serializers.ValidationError(f"Không tìm thấy Giảng viên '{value}'.")
         return value
+    
+class ThanhVienHoiDongInputSerializer(serializers.Serializer):
+    """Input nhận từng thành viên khi Cán bộ lập hội đồng"""
+    MaGV = serializers.CharField(required=True)
+    VaiTro = serializers.ChoiceField(
+        choices=[
+            "Chủ tịch hội đồng", "Thư ký hội đồng", 
+            "Ủy viên phản biện 1", "Ủy viên phản biện 2", "Ủy viên hội đồng"
+        ]
+    )
+
+    def validate_MaGV(self, value):
+        from .models import GiangVien
+        if not GiangVien.objects.filter(MaGV=value).exists():
+            raise serializers.ValidationError(f"Giảng viên mã {value} không tồn tại.")
+        return value
+
+
+class HoiDongTaoMoiSerializer(serializers.ModelSerializer):
+    """Serializer dùng khi Cán bộ quản lý POST để tạo Hội đồng mới"""
+    DanhSachThanhVien = ThanhVienHoiDongInputSerializer(many=True, write_only=True)
+
+    class Meta:
+        model = HoiDong
+        fields = ["MaHoiDong", "TenHoiDong", "QuyetDinh", "DanhSachThanhVien"]
+
+    def validate_DanhSachThanhVien(self, value):
+        if len(value) != 5:
+            raise serializers.ValidationError("Hội đồng phải có chính xác 5 giảng viên.")
+        
+        roles = [item["VaiTro"] for item in value]
+        if len(set(roles)) != 5:
+            raise serializers.ValidationError("Các vai trò trong hội đồng không được trùng lặp.")
+            
+        gvs = [item["MaGV"] for item in value]
+        if len(set(gvs)) != 5:
+            raise serializers.ValidationError("Một giảng viên không thể đóng 2 vai trò trong cùng hội đồng.")
+            
+        return value
+
+    def create(self, validated_data):
+        from .models import ThanhVienHoiDong, GiangVien
+        from django.db import transaction
+
+        danh_sach = validated_data.pop("DanhSachThanhVien")
+        
+        with transaction.atomic():
+            # 1. Tạo bản ghi Hội Đồng
+            hoi_dong = HoiDong.objects.create(**validated_data)
+
+            # 2. Tạo 5 bản ghi Thành viên Hội Đồng
+            for item in danh_sach:
+                gv = GiangVien.objects.get(MaGV=item["MaGV"])
+                ThanhVienHoiDong.objects.create(
+                    MaHoiDong=hoi_dong,
+                    MaGV=gv,
+                    VaiTroHD=item["VaiTro"]
+                )
+        return hoi_dong
+    
+
+class TaiLieuSerializer(serializers.ModelSerializer):
+    NgayTao_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TaiLieu
+        fields = [
+            "MaTaiLieu", "TenTaiLieu", "MoTa", "Loai", "DinhDang", 
+            "DuongLink", "FileDinhKem", "NgayTao", "NgayTao_display"
+        ]
+
+    def get_NgayTao_display(self, obj):
+        return obj.NgayTao.strftime("%d/%m/%Y")
+
+    def validate(self, attrs):
+        # Kiểm tra xem người dùng có cung cấp ít nhất link hoặc file không
+        if not attrs.get("DuongLink") and not attrs.get("FileDinhKem"):
+            raise serializers.ValidationError("Thầy/Cô phải nhập Đường dẫn liên kết hoặc Tải lên tệp đính kèm.")
+        return attrs
+    
+
+# Thêm vào cuối file api/serializers.py
+from .models import ThongBao
+
+class ThongBaoSerializer(serializers.ModelSerializer):
+    Loai_display = serializers.CharField(source="get_Loai_display", read_only=True)
+    NgayTao_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ThongBao
+        fields = ["MaThongBao", "NoiDung", "IsRead", "Loai", "Loai_display", "NgayTao", "NgayTao_display"]
+        read_only_fields = ["MaThongBao", "NgayTao"]
+
+    def get_NgayTao_display(self, obj):
+        # Định dạng ngày giờ hiển thị lên UI cho đẹp
+        return obj.NgayTao.strftime("%H:%M %d/%m/%Y")
+
+

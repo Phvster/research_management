@@ -185,3 +185,19 @@ class IsOwnerOrCanBo(BasePermission):
             return obj.TenDangNhap.TenDangNhap == request.user.username
 
         return False
+    
+
+from rest_framework.permissions import BasePermission
+
+class AllowAllAuthenticatedActions(BasePermission):
+    """
+    Quyền cho phép TẤT CẢ người dùng đã đăng nhập 
+    thực hiện BẤT KỲ hành động nào trên hệ thống.
+    """
+    def has_permission(self, request, view):
+        # Chỉ cần tài khoản đã đăng nhập hợp lệ (có token) là cho qua hết
+        return request.user and request.user.is_authenticated
+
+    def has_object_permission(self, request, view, obj):
+        # Cho phép sửa/xóa bất kỳ bản ghi nào của người khác luôn
+        return True

@@ -7,7 +7,7 @@ from .views import (
     TaiKhoanViewSet, DeTaiViewSet, SinhVienViewSet,
     GiangVienViewSet, CanBoQuanLyViewSet, HuongDanViewSet,
     TienDoViewSet, BaoCaoViewSet, HoiDongViewSet, DanhGiaViewSet,
-    BaiBaoNCKHViewSet,
+    BaiBaoNCKHViewSet, TaiLieuViewSet, ThongBaoViewSet
 )
 
 from .views import lay_thong_tin_ca_nhan
@@ -43,6 +43,9 @@ router.register(r"bao-cao",         BaoCaoViewSet,       basename="bao-cao")
 router.register(r"hoi-dong",        HoiDongViewSet,      basename="hoi-dong")
 router.register(r"danh-gia",        DanhGiaViewSet,      basename="danh-gia")
 router.register(r"bai-bao",        BaiBaoNCKHViewSet,   basename="bai-bao")
+router.register(r'tai-lieu',       TaiLieuViewSet, basename='tai-lieu')
+router.register(r'thong-bao',  ThongBaoViewSet, basename='thong-bao')
+
 
 # ─── Export urlpatterns ────────────────────────────────────────────────────────
 app_name = "api"

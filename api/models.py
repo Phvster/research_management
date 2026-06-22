@@ -55,11 +55,13 @@ class TaiKhoan(models.Model):
 class DeTai(models.Model):
 
     class TrangThaiDeTai(models.TextChoices):
-        CHO_DUYET        = "CHODUYET",       "Chờ Duyệt"
-        DANG_THUC_HIEN   = "DANGTHUCHIEN",   "Đang Thực Hiện"
-        CHO_NGHIEM_THU   = "CHONGHIEMTHU",   "Chờ Nghiệm Thu"
-        DA_NGHIEM_THU   = "DANGHIEMTHU",   "Đã Nghiệm Thu"   # ← Thêm mới
-        TU_CHOI         = "TUCHOI",        "Từ Chối"
+        CHODUYET        = "CHODUYET", "Chờ cán bộ duyệt"
+        CHO_XAC_NHAN_GV = "CHO_XAC_NHAN_GV", "Chờ giảng viên xác nhận"
+        GV_TU_CHOI      = "GV_TU_CHOI", "Giảng viên từ chối hướng dẫn"
+        DANGTHUCHIEN    = "DANGTHUCHIEN", "Đang thực hiện"
+        CHONGHIEMTHU    = "CHONGHIEMTHU", "Chờ nghiệm thu"
+        DANGHIEMTHU     = "DANGHIEMTHU", "Đã nghiệm thu"
+        TUCHOI          = "TUCHOI", "Bị từ chối"
 
     MaDeTai = models.CharField(
         max_length=20,
@@ -76,7 +78,7 @@ class DeTai(models.Model):
     TrangThai = models.CharField(
         max_length=20,
         choices=TrangThaiDeTai.choices,
-        default=TrangThaiDeTai.CHO_DUYET,
+        default=TrangThaiDeTai.CHODUYET,
         verbose_name="Trạng thái",
     )
 
@@ -142,6 +144,8 @@ class SinhVien(models.Model):
         max_length=100,
         verbose_name="Khoa",
     )
+    Email = models.EmailField(max_length=254, null=True, blank=True, verbose_name="Email")
+    SoDienThoai = models.CharField(max_length=15, null=True, blank=True, verbose_name="Số điện thoại")
 
     class Meta:
         db_table = "SinhVien"
@@ -178,6 +182,8 @@ class GiangVien(models.Model):
         max_length=50,
         verbose_name="Học hàm/Học vị",
     )
+    Email = models.EmailField(max_length=254, null=True, blank=True, verbose_name="Email")
+    SoDienThoai = models.CharField(max_length=15, null=True, blank=True, verbose_name="Số điện thoại")
 
     class Meta:
         db_table = "GiangVien"
@@ -213,6 +219,8 @@ class CanBoQuanLy(models.Model):
         max_length=100,
         verbose_name="Phòng/Ban",
     )
+    Email = models.EmailField(max_length=254, null=True, blank=True, verbose_name="Email")
+    SoDienThoai = models.CharField(max_length=15, null=True, blank=True, verbose_name="Số điện thoại")
 
     class Meta:
         db_table = "CanBoQuanLy"
@@ -229,6 +237,14 @@ class CanBoQuanLy(models.Model):
 # (Chủ nhiệm, Đồng hướng dẫn...). Dùng AutoField thay vì CharField cho PK.
 # ═══════════════════════════════════════════════════════════════════════════════
 class HuongDan(models.Model):
+    class TrangThaiLoiMoi(models.TextChoices):
+        CHO_XAC_NHAN = "CHO_XAC_NHAN", "Chờ xác nhận"
+        DA_XAC_NHAN  = "DA_XAC_NHAN", "Đã đồng ý hướng dẫn"
+        TU_CHOI      = "TU_CHOI", "Đã từ chối hướng dẫn"
+
+    MaDeTai = models.ForeignKey(DeTai, on_delete=models.CASCADE, related_name="huong_dan_de_tai")
+    MaGV    = models.ForeignKey(GiangVien, on_delete=models.CASCADE)
+    VaiTro  = models.CharField(max_length=50, default="Chủ nhiệm")
 
     # AutoField: Django tự tăng, phù hợp cho bảng trung gian
     MaHuongDan = models.AutoField(
@@ -257,7 +273,11 @@ class HuongDan(models.Model):
         # Ví dụ: "Chủ nhiệm", "Đồng hướng dẫn"
     )
     # Giảng viên xác nhận nhận hướng dẫn
-    DaXacNhan  = models.BooleanField(default=False)  # ← Thêm mới
+    TrangThaiXacNhan = models.CharField(
+        max_length=20, 
+        choices=TrangThaiLoiMoi.choices, 
+        default=TrangThaiLoiMoi.CHO_XAC_NHAN
+    )
     NgayXacNhan = models.DateTimeField(null=True, blank=True) # ← Thêm mới
 
     class Meta:
@@ -293,9 +313,9 @@ class TienDo(models.Model):
     TyLeHoanThanh = models.IntegerField(
         verbose_name="Tỷ lệ hoàn thành (%)",
     )
-    NoiDung = models.TextField(
-        verbose_name="Nội dung cập nhật",
-    )
+    # NoiDung = models.TextField(
+    #     verbose_name="Nội dung cập nhật",
+    # )
     # Lưu đường dẫn tương đối đến file minh chứng trên server
     # Ví dụ: "uploads/tiendo/de_tai_001_tuan3.pdf"
     FileMinhChung = models.FileField(
@@ -312,6 +332,7 @@ class TienDo(models.Model):
     # Giảng viên nhận xét trực tiếp vào bản ghi tiến độ
     NhanXetGVHD   = models.TextField(blank=True, default="")   # ← Thêm mới
     NgayNhanXet   = models.DateTimeField(null=True, blank=True) # ← Thêm mới
+    DiemGVHD = models.FloatField(null=True, blank=True, verbose_name="Điểm GVHD chấm")
 
     class Meta:
         db_table = "TienDo"
@@ -359,7 +380,19 @@ class BaoCao(models.Model):
         null=True,
         blank=True
     )
-
+    MaHoiDong = models.ForeignKey(
+        'HoiDong', # Trỏ tới class HoiDong của ní
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='danh_sach_bao_cao',
+        verbose_name="Hội đồng đánh giá"
+    )
+    DiemTrungBinh = models.FloatField(
+        null=True, 
+        blank=True, 
+        verbose_name="Điểm trung bình Hội đồng"
+    )
     # Tỷ lệ % đạo văn từ công cụ kiểm tra (có thể chưa có khi mới nộp)
     TyLeDaoVan = models.FloatField(
         null=True,
@@ -427,19 +460,23 @@ class ThanhVienHoiDong(models.Model):
     là thành viên của một Hội đồng. Đây là model còn thiếu khiến
     hệ thống trước đây không biết "5 người trong hội đồng là ai".
     """
-    class VaiTroHD(models.TextChoices):
-        CHU_TICH = "CHUTICH", "Chủ tịch Hội đồng"
-        THU_KY   = "THUKY",   "Thư ký"
-        UY_VIEN  = "UYVIEN",  "Ủy viên"
+    class VaiTroHoiDong(models.TextChoices):
+        CHU_TICH = "Chủ tịch hội đồng", "Chủ tịch hội đồng"
+        THU_KY   = "Thư ký hội đồng", "Thư ký hội đồng"
+        PB_1     = "Ủy viên phản biện 1", "Ủy viên phản biện 1"
+        PB_2     = "Ủy viên phản biện 2", "Ủy viên phản biện 2"
+        UY_VIEN  = "Ủy viên hội đồng", "Ủy viên hội đồng"
 
-    MaThanhVien = models.AutoField(primary_key=True)
-    MaHoiDong   = models.ForeignKey(
-        HoiDong, on_delete=models.CASCADE, related_name="thanh_viens"
+    MaHoiDong = models.ForeignKey(HoiDong, on_delete=models.CASCADE, related_name="thanh_vien")
+    MaGV      = models.ForeignKey(GiangVien, on_delete=models.CASCADE)
+    
+    # Ép sử dụng các lựa chọn trên
+    VaiTroHD = models.CharField(
+        max_length=50, 
+        choices=VaiTroHoiDong.choices,
+        default="Ủy viên hội đồng",
+        verbose_name="Vai trò trong HĐ"
     )
-    MaGV = models.ForeignKey(
-        "GiangVien", on_delete=models.CASCADE, related_name="hoi_dong_thamgia"
-    )
-    VaiTro = models.CharField(max_length=20, choices=VaiTroHD.choices)
 
     class Meta:
         db_table = "ThanhVienHoiDong"
@@ -449,7 +486,7 @@ class ThanhVienHoiDong(models.Model):
         verbose_name_plural = "Danh Sách Thành Viên Hội Đồng"
 
     def __str__(self):
-        return f"{self.MaGV} — {self.get_VaiTro_display()} của {self.MaHoiDong}"
+        return f"{self.MaGV} — {self.get_VaiTroHD_display()} của {self.MaHoiDong}"
 
 
 
@@ -477,6 +514,7 @@ class DanhGia(models.Model):
         HoiDong,
         on_delete=models.SET_NULL,
         null=True,
+        blank=True,
         db_column="MaHoiDong",
         related_name="danh_gias",
         verbose_name="Hội đồng",
@@ -516,7 +554,7 @@ class DanhGia(models.Model):
         verbose_name = "Đánh Giá"
         verbose_name_plural = "Danh Sách Đánh Giá"
         # Một hội đồng chỉ đánh giá mỗi đề tài một lần
-        unique_together = ("MaHoiDong", "MaDeTai")
+        unique_together = ("ThanhVienCham", "MaDeTai")
 
     def __str__(self):
         return (
@@ -614,3 +652,75 @@ class BaiBaoNCKH(models.Model):
 
     def __str__(self):
         return f"[{self.get_GiaiThuong_display()}] {self.TenDeTai} ({self.NamHoanThanh})"
+    
+class TaiLieu(models.Model):
+    class LoaiTaiLieu(models.TextChoices):
+        BIEU_MAU   = "Biểu mẫu", "Biểu mẫu"
+        QUY_DINH   = "Quy định", "Quy định"
+        HUONG_DAN  = "Hướng dẫn", "Hướng dẫn"
+
+    # THÊM MỚI: Định nghĩa lựa chọn định dạng tệp
+    class DinhDangFile(models.TextChoices):
+        WORD = "Word", "Word"
+        PDF  = "PDF", "PDF"
+
+    MaTaiLieu   = models.AutoField(primary_key=True, verbose_name="Mã tài liệu")
+    TenTaiLieu  = models.CharField(max_length=255, verbose_name="Tên tài liệu/văn bản")
+    
+    MoTa        = models.TextField(blank=True, default="", verbose_name="Mô tả tóm tắt nội dung")
+    
+    Loai        = models.CharField(max_length=20, choices=LoaiTaiLieu.choices, verbose_name="Loại tài liệu")
+    
+    DinhDang    = models.CharField(max_length=10, choices=DinhDangFile.choices, default="Word", verbose_name="Định dạng tệp")
+    
+    DuongLink   = models.URLField(max_length=500, blank=True, null=True, verbose_name="Đường dẫn tải file về (URL tệp mẫu)")
+    FileDinhKem = models.FileField(upload_to="library_docs/%Y/", blank=True, null=True, verbose_name="File tải lên (.pdf/.docx)")
+    NgayTao     = models.DateTimeField(auto_now_add=True, verbose_name="Ngày đăng")
+
+    class Meta:
+        db_table = "TaiLieu"
+        ordering = ["-NgayTao"]
+        verbose_name = "Tài liệu thư viện"
+        verbose_name_plural = "Tài liệu thư viện"
+
+    def __str__(self):
+        return f"[{self.Loai}] {self.TenTaiLieu}"
+    
+# Thêm vào cuối file api/models.py
+
+class ThongBao(models.Model):
+    class LoaiThongBao(models.TextChoices):
+        TIEN_DO    = "TIENDO", "Tiến độ & Chấm điểm"
+        DE_TAI     = "DETAI", "Phê duyệt Đề tài"
+        HOI_DONG   = "HOIDONG", "Hội đồng nghiệm thu"
+        HE_THONG   = "HETHONG", "Thông báo Hệ thống"
+
+    MaThongBao = models.AutoField(primary_key=True, verbose_name="Mã thông báo")
+    # Liên kết trực tiếp với tài khoản nhận thông báo (Bất kể vai trò nào)
+    TenDangNhap = models.ForeignKey(
+        "TaiKhoan",
+        on_delete=models.CASCADE,
+        db_column="TenDangNhap",
+        related_name="thong_baos",
+        verbose_name="Tài khoản nhận"
+    )
+    NoiDung = models.TextField(verbose_name="Nội dung thông báo")
+    IsRead = models.BooleanField(default=False, verbose_name="Đã đọc")
+    Loai = models.CharField(
+        max_length=20,
+        choices=LoaiThongBao.choices,
+        default=LoaiThongBao.HE_THONG,
+        verbose_name="Loại thông báo"
+    )
+    NgayTao = models.DateTimeField(auto_now_add=True, verbose_name="Ngày tạo")
+
+    class Meta:
+        db_table = "ThongBao"
+        verbose_name = "Thông Báo"
+        verbose_name_plural = "Danh Sách Thông Báo"
+        ordering = ["-NgayTao"] # Mới nhất trồi lên đầu
+
+    def __str__(self):
+        return f"[{self.TenDangNhap_id}] {self.NoiDung[:30]}..."
+
+

@@ -24,7 +24,8 @@ from .serializers import (
     TienDoSerializer, BaoCaoSerializer, HoiDongSerializer, DanhGiaSerializer,
     DeTaiDangKySerializer, TienDoTaoMoiSerializer,
     BaoCaoNopSerializer, DanhGiaChamDiemSerializer, TienDoVoiNhanXetSerializer, TuChoiDeTaiSerializer,
-    PhanCongHoiDongSerializer, NhanXetGVHDSerializer, PhanCongThanhVienSerializer, BaoCaoNopSerializer, BaoCaoChiTietSerializer
+    PhanCongHoiDongSerializer, NhanXetGVHDSerializer, PhanCongThanhVienSerializer, BaoCaoNopSerializer, BaoCaoChiTietSerializer,
+    HoiDongTaoMoiSerializer
 )
 from .permissions import (
     IsCanBoQuanLy, IsGiangVien, IsSinhVien,
@@ -35,7 +36,7 @@ from .pagination  import ChuanPagination, NhoPagination, LonPagination
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 
 # ─── Hàm tiện ích (giữ nguyên từ bước trước) ────────────────────────────────
@@ -124,51 +125,13 @@ class TaiKhoanViewSet(BaseViewSet):
 # 2. ĐỀ TÀI — /api/de-tai/
 # ═══════════════════════════════════════════════════════════════════════════════
 class DeTaiViewSet(BaseViewSet):
-    """
-    Permissions theo action:
-    - list / retrieve : IsAuthenticated (mọi người xem)
-    - create          : IsSinhVien (chỉ SV đăng ký)
-    - update/destroy  : IsCanBoQuanLy
-    - duyet           : IsCanBoQuanLy  ← @action cụ thể
-    - gui_nghiem_thu  : IsCanBoQuanLy  ← @action cụ thể
-    """
     serializer_class = DeTaiSerializer
-
-    # ── Cấu hình Filtering & Search ─────────────────────────────────────────
-    filterset_class = DeTaiFilter           # Dùng class filter đã định nghĩa
-    search_fields   = ["MaDeTai", "TenDeTai", "TomTat"]  # ?search=quản lý
+    filterset_class = DeTaiFilter
+    search_fields   = ["MaDeTai", "TenDeTai", "TomTat"]
     ordering_fields = ["MaDeTai", "TenDeTai", "TrangThai"]
     ordering        = ["MaDeTai"]
 
-    def get_permissions(self):
-        """
-        ── PHÂN QUYỀN THEO ACTION CHO DETAI ────────────────────────────────
-
-        Sơ đồ phân quyền:
-        ┌─────────────────────┬──────────────────────────┐
-        │ Action               │ Permission               │
-        ├─────────────────────┼──────────────────────────┤
-        │ list / retrieve      │ IsAuthenticated          │
-        │ create               │ IsSinhVien               │
-        │ update / destroy     │ IsCanBoQuanLy            │
-        │ duyet_de_tai (@action)│ IsCanBoQuanLy           │
-        │ gui_len_hoi_dong     │ IsCanBoQuanLy            │
-        └─────────────────────┴──────────────────────────┘
-        """
-        HANH_DONG_CAN_BO = [
-            "create", "update", "partial_update", "destroy",
-            "duyet_de_tai", "tu_choi_de_tai", "gui_len_hoi_dong",
-            "phan_cong_hoi_dong", "them_thanh_vien_hoi_dong",   # ← thêm action mới
-            "nghiem_thu",
-        ]
-        if self.action == "create":
-            return [IsSinhVien()]
-        if self.action in HANH_DONG_CAN_BO:
-            return [IsCanBoQuanLy()]
-        return [IsAuthenticated()]
-
     def get_queryset(self):
-        """Bộ lọc động theo vai trò (giữ nguyên từ bước trước)."""
         user    = self.request.user
         vai_tro = _get_vai_tro(user)
 
@@ -196,138 +159,189 @@ class DeTaiViewSet(BaseViewSet):
         return DeTaiSerializer
 
     def perform_create(self, serializer):
-        """Quy trình đăng ký đề tài kèm theo nhóm."""
         sv = _get_sinh_vien(self.request.user)
         if sv is None:
             raise ValidationError("Không tìm thấy hồ sơ Sinh viên.")
         if sv.MaDeTai is not None:
             raise ValidationError("Bạn đã có đề tài. Không thể đăng ký thêm.")
 
-        # Lấy danh sách thành viên từ validated_data (nếu không truyền lên sẽ là mảng rỗng)
         danh_sach_thanh_vien = serializer.validated_data.pop("DanhSachThanhVien", [])
-        # Lấy mã giảng viên ra khỏi data
         ma_gv = serializer.validated_data.pop("MaGV_HuongDan", None)
 
-        # Tránh trường hợp sinh viên đăng ký tự điền mã của chính mình vào mảng
         if sv.MaSV in danh_sach_thanh_vien:
             danh_sach_thanh_vien.remove(sv.MaSV)
 
-        # 1. Lưu đề tài mới với trạng thái Chờ duyệt
-        de_tai = serializer.save(TrangThai=DeTai.TrangThaiDeTai.CHO_DUYET)
+        de_tai = serializer.save(TrangThai=DeTai.TrangThaiDeTai.CHODUYET)
 
-        # 2. Gán đề tài cho sinh viên thực hiện đăng ký (nhóm trưởng)
         sv.MaDeTai = de_tai
         sv.save(update_fields=["MaDeTai"])
 
-        # 3. Gán đề tài cho các thành viên khác trong nhóm (nếu có)
         if danh_sach_thanh_vien:
             SinhVien.objects.filter(MaSV__in=danh_sach_thanh_vien).update(MaDeTai=de_tai)
-        # 4. THÊM MỚI: Tạo lời mời giảng viên hướng dẫn
+            
         if ma_gv:
             HuongDan.objects.create(
                 MaDeTai=de_tai,
                 MaGV_id=ma_gv,
                 VaiTro="Chủ nhiệm",
-                DaXacNhan=False  # Đánh dấu là chưa xác nhận (chờ GV duyệt)
+                TrangThaiXacNhan=HuongDan.TrangThaiLoiMoi.CHO_XAC_NHAN
+            )
+        from .models import ThongBao, CanBoQuanLy
+        ds_can_bo = CanBoQuanLy.objects.values_list('TenDangNhap_id', flat=True)
+        for cb_id in ds_can_bo:
+            ThongBao.objects.create(
+                TenDangNhap_id=cb_id,
+                NoiDung=f"Có đơn đăng ký đề tài mới cần phê duyệt: '{de_tai.TenDeTai}' (Mã: {de_tai.MaDeTai}).",
+                Loai=ThongBao.LoaiThongBao.DE_TAI
             )
 
-    # ── Custom Action: Duyệt đề tài ─────────────────────────────────────────
+
+
+
     @action(detail=True, methods=["patch"], url_path="duyet")
     def duyet_de_tai(self, request, pk=None):
-        """
-        PATCH /api/de-tai/{MaDeTai}/duyet/
+        vai_tro = _get_vai_tro(request.user)
+        if vai_tro != TaiKhoan.QuyenHanChoices.QUAN_LY:
+            raise PermissionDenied("Chỉ Cán bộ quản lý mới được duyệt đề tài bước 1.")
 
-        ── CÁCH PERMISSION HOẠT ĐỘNG TRÊN @action ───────────────────────────
-        Khi DRF nhận request đến action "duyet_de_tai":
-          1. Gọi get_permissions() → trả về [IsCanBoQuanLy()]
-          2. Gọi IsCanBoQuanLy.has_permission(request, view)
-          3. Nếu False → trả về 403 Forbidden ngay lập tức
-          4. Nếu True → tiếp tục vào hàm duyet_de_tai()
+        de_tai = self.get_object()
 
-        Vì get_permissions() đã xử lý việc kiểm tra vai trò,
-        trong body hàm KHÔNG CẦN viết lại if/raise PermissionDenied nữa.
-        Code trong hàm chỉ tập trung vào business logic thuần túy.
-        ─────────────────────────────────────────────────────────────────────
-        """
-        de_tai = self.get_object()  # Tự động raise 404 nếu không tìm thấy
+        if de_tai.TrangThai != DeTai.TrangThaiDeTai.CHODUYET:
+            raise ValidationError(f"Đề tài không ở trạng thái chờ duyệt. Hiện tại: {de_tai.get_TrangThai_display()}")
 
-        if de_tai.TrangThai != DeTai.TrangThaiDeTai.CHO_DUYET:
-            raise ValidationError(
-                f"Chỉ duyệt được đề tài ở trạng thái 'Chờ Duyệt'. "
-                f"Hiện tại: '{de_tai.get_TrangThai_display()}'."
+        de_tai.TrangThai = DeTai.TrangThaiDeTai.CHO_XAC_NHAN_GV
+        de_tai.save(update_fields=["TrangThai"])
+        from .models import ThongBao, HuongDan
+        huong_dan = HuongDan.objects.filter(
+            MaDeTai=de_tai,
+            TrangThaiXacNhan=HuongDan.TrangThaiLoiMoi.CHO_XAC_NHAN
+        ).first()
+        if huong_dan:
+            ThongBao.objects.create(
+                TenDangNhap_id=huong_dan.MaGV.TenDangNhap_id,
+                NoiDung=f"Bạn nhận được lời mời hướng dẫn đề tài nghiên cứu: '{de_tai.TenDeTai}'. Vui lòng xác nhận.",
+                Loai=ThongBao.LoaiThongBao.DE_TAI
             )
 
-        de_tai.TrangThai = DeTai.TrangThaiDeTai.DANG_THUC_HIEN
-        de_tai.save(update_fields=["TrangThai"])
-
         return Response({
-            "message" : f"Đề tài [{de_tai.MaDeTai}] đã được duyệt thành công.",
+            "message" : f"Cán bộ đã duyệt đề tài [{de_tai.MaDeTai}]. Hệ thống đang chờ Giảng viên xác nhận.",
             "TrangThai": de_tai.get_TrangThai_display(),
         }, status=status.HTTP_200_OK)
 
+    @action(detail=True, methods=["patch"], url_path="tu-choi")
+    def tu_choi_de_tai(self, request, pk=None):
+        de_tai = self.get_object()
+        de_tai.delete()
+        return Response({"message": "Đã từ chối đơn đăng ký. Đề tài đã bị loại bỏ, sinh viên có thể đăng ký đề tài mới."})
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # 2 HÀM XÁC NHẬN / TỪ CHỐI CỦA GIẢNG VIÊN (SỬA LỖI 404 TẠI ĐÂY)
+    # ═══════════════════════════════════════════════════════════════════════
+    @action(detail=True, methods=["patch"], url_path="xac-nhan")
+    def xac_nhan_huong_dan(self, request, pk=None):
+        vai_tro = _get_vai_tro(request.user)
+        if vai_tro != TaiKhoan.QuyenHanChoices.GIANG_VIEN:
+            raise PermissionDenied("Chỉ Giảng viên mới được xác nhận hướng dẫn.")
+
+        de_tai = self.get_object() 
+        giang_vien = _get_giang_vien(request.user)
+
+        from django.shortcuts import get_object_or_404
+        huong_dan = get_object_or_404(HuongDan, MaDeTai=de_tai, MaGV=giang_vien)
+
+        huong_dan.TrangThaiXacNhan = HuongDan.TrangThaiLoiMoi.DA_XAC_NHAN
+        huong_dan.save(update_fields=["TrangThaiXacNhan"])
+
+        de_tai.TrangThai = DeTai.TrangThaiDeTai.DANGTHUCHIEN
+        de_tai.save(update_fields=["TrangThai"])
+
+        sv_chu_nhiem = de_tai.sinh_viens.first()
+        if sv_chu_nhiem:
+            ThongBao.objects.create(
+                TenDangNhap=sv_chu_nhiem.TenDangNhap,
+                NoiDung=f"Chúc mừng! Giảng viên {giang_vien.TenGV} đã chấp nhận hướng dẫn đề tài '{de_tai.TenDeTai}' của nhóm bạn. Đề tài đã được kích hoạt thực hiện.",
+                Loai=ThongBao.LoaiThongBao.DE_TAI )
+
+        return Response({"message": "Thầy/Cô đã chấp nhận hướng dẫn. Đề tài đã chính thức được kích hoạt."})
+
+    @action(detail=True, methods=["patch"], url_path="tu-choi-gv")
+    def tu_choi_huong_dan(self, request, pk=None):
+        vai_tro = _get_vai_tro(request.user)
+        if vai_tro != TaiKhoan.QuyenHanChoices.GIANG_VIEN:
+            raise PermissionDenied("Chỉ Giảng viên mới được từ chối hướng dẫn.")
+
+        de_tai = self.get_object()
+        giang_vien = _get_giang_vien(request.user)
+
+        from django.shortcuts import get_object_or_404
+        huong_dan = get_object_or_404(HuongDan, MaDeTai=de_tai, MaGV=giang_vien)
+
+        huong_dan.TrangThaiXacNhan = HuongDan.TrangThaiLoiMoi.TU_CHOI
+        huong_dan.save(update_fields=["TrangThaiXacNhan"])
+
+        de_tai.TrangThai = DeTai.TrangThaiDeTai.GV_TU_CHOI
+        de_tai.save(update_fields=["TrangThai"])
+
+        
+        sv_chu_nhiem = de_tai.sinh_viens.first()
+        if sv_chu_nhiem: ThongBao.objects.create(
+            TenDangNhap=sv_chu_nhiem.TenDangNhap,
+            NoiDung=f"Cảnh báo: Giảng viên đã từ chối hướng dẫn đề tài '{de_tai.TenDeTai}'. Vui lòng vào không gian quản lý để tiến hành đề xuất Giảng viên mới.",
+            Loai=ThongBao.LoaiThongBao.DE_TAI
+        ) 
+        return Response({"message": "Thầy/Cô đã từ chối hướng dẫn. Sinh viên sẽ nhận được thông báo để đổi Giảng viên khác."})
+
+    @action(detail=True, methods=["patch"], url_path="doi-giang-vien")
+    def student_change_teacher(self, request, pk=None):
+        de_tai = self.get_object()
+        if de_tai.TrangThai != DeTai.TrangThaiDeTai.GV_TU_CHOI:
+            raise ValidationError("Bạn chỉ được phép đổi giảng viên khi giảng viên trước đó từ chối hướng dẫn.")
+
+        new_ma_gv = request.data.get("MaGV_Moi")
+        
+        da_tung_tu_choi = HuongDan.objects.filter(
+            MaDeTai=de_tai, 
+            MaGV_id=new_ma_gv, 
+            TrangThaiXacNhan=HuongDan.TrangThaiLoiMoi.TU_CHOI
+        ).exists()
+        
+        if da_tung_tu_choi:
+            raise ValidationError("Giảng viên này đã từ chối nhóm bạn trước đó. Bạn bắt buộc phải mời một người khác!")
+
+        from .models import GiangVien
+        gv_moi = get_object_or_404(GiangVien, pk=new_ma_gv)
+        HuongDan.objects.create(
+            MaDeTai=de_tai,
+            MaGV=gv_moi,
+            VaiTro="Chủ nhiệm",
+            TrangThaiXacNhan=HuongDan.TrangThaiLoiMoi.CHO_XAC_NHAN
+        )
+
+        de_tai.TrangThai = DeTai.TrangThaiDeTai.CHODUYET
+        de_tai.save(update_fields=["TrangThai"])
+
+        return Response({"message": "Đổi giảng viên thành công. Đề tài đã được gửi lại cho Cán bộ quản lý duyệt lại."})
+
     @action(detail=True, methods=["patch"], url_path="gui-nghiem-thu")
     def gui_len_hoi_dong(self, request, pk=None):
-        """PATCH /api/de-tai/{MaDeTai}/gui-nghiem-thu/"""
         de_tai = self.get_object()
 
-        if de_tai.TrangThai != DeTai.TrangThaiDeTai.DANG_THUC_HIEN:
+        if de_tai.TrangThai != DeTai.TrangThaiDeTai.DANGTHUCHIEN:
             raise ValidationError(
                 f"Đề tài phải đang 'Thực Hiện' mới gửi nghiệm thu được. "
                 f"Hiện tại: '{de_tai.get_TrangThai_display()}'."
             )
 
-        de_tai.TrangThai = DeTai.TrangThaiDeTai.CHO_NGHIEM_THU
+        de_tai.TrangThai = DeTai.TrangThaiDeTai.CHONGHIEMTHU
         de_tai.save(update_fields=["TrangThai"])
 
         return Response({
             "message" : f"Đề tài [{de_tai.MaDeTai}] đã gửi lên Hội đồng nghiệm thu.",
             "TrangThai": de_tai.get_TrangThai_display(),
         }, status=status.HTTP_200_OK)
-    
-    # api/views.py — THÊM VÀO class DeTaiViewSet
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # [CÁN BỘ] Từ chối đề tài
-    # PATCH /api/de-tai/{MaDeTai}/tu-choi/
-    # STATE: CHODUYET → TUCHOI
-    # ═══════════════════════════════════════════════════════════════════════
-    @action(detail=True, methods=["patch"], url_path="tu-choi")
-    def tu_choi_de_tai(self, request, pk=None):
-        de_tai     = self.get_object()
-        serializer = TuChoiDeTaiSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        if de_tai.TrangThai != DeTai.TrangThaiDeTai.CHO_DUYET:
-            raise ValidationError(
-                f"Chỉ từ chối được đề tài đang 'Chờ Duyệt'. "
-                f"Hiện tại: '{de_tai.get_TrangThai_display()}'."
-            )
-
-        # STATE: CHODUYET → TUCHOI
-        de_tai.TrangThai  = DeTai.TrangThaiDeTai.TU_CHOI
-        de_tai.LyDoTuChoi = serializer.validated_data["LyDoTuChoi"]
-        de_tai.save(update_fields=["TrangThai", "LyDoTuChoi"])
-
-        return Response({
-            "message"   : f"Đề tài [{de_tai.MaDeTai}] đã bị từ chối.",
-            "TrangThai" : de_tai.get_TrangThai_display(),
-            "LyDoTuChoi": de_tai.LyDoTuChoi,
-        })
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # [CÁN BỘ] Phân công Hội đồng đánh giá cho Đề tài
-    # PATCH /api/de-tai/{MaDeTai}/them-thanh-vien-hoi-dong/
-    # ═══════════════════════════════════════════════════════════════════════
     @action(detail=True, methods=["post"], url_path="them-thanh-vien-hoi-dong")
     def them_thanh_vien_hoi_dong(self, request, pk=None):
-        """
-        POST /api/de-tai/{MaDeTai}/them-thanh-vien-hoi-dong/
-        Cán bộ thêm 1 Giảng viên vào Hội đồng chấm của đề tài này.
-
-        ── RÀNG BUỘC CONFLICT OF INTEREST ────────────────────────────────
-        Giảng viên hướng dẫn (HuongDan) của đề tài TUYỆT ĐỐI KHÔNG được
-        đồng thời là thành viên Hội đồng chấm của CHÍNH đề tài đó.
-        """
         de_tai = self.get_object()
 
         if de_tai.MaHoiDong_id is None:
@@ -342,7 +356,6 @@ class DeTaiViewSet(BaseViewSet):
         ma_gv  = serializer.validated_data["MaGV"]
         vai_tro = serializer.validated_data["VaiTro"]
 
-        # ── KIỂM TRA CONFLICT OF INTEREST — CHẶN ĐỨNG TẠI ĐÂY ────────────
         la_giang_vien_huong_dan = HuongDan.objects.filter(
             MaDeTai=de_tai, MaGV_id=ma_gv
         ).exists()
@@ -357,7 +370,6 @@ class DeTaiViewSet(BaseViewSet):
                 "error_code": "CONFLICT_OF_INTEREST",
             })
 
-        # Kiểm tra GV này đã là thành viên hội đồng này chưa
         if ThanhVienHoiDong.objects.filter(
             MaHoiDong=de_tai.MaHoiDong, MaGV_id=ma_gv
         ).exists():
@@ -379,22 +391,16 @@ class DeTaiViewSet(BaseViewSet):
             "MaThanhVien": thanh_vien.MaThanhVien,
         }, status=status.HTTP_201_CREATED)
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # [CÁN BỘ] Tổng hợp kết quả & chuyển trạng thái nghiệm thu
-    # POST /api/de-tai/{MaDeTai}/nghiem-thu/
-    # STATE: CHONGHIEMTHU → DANGHIEMTHU
-    # ═══════════════════════════════════════════════════════════════════════
     @action(detail=True, methods=["post"], url_path="nghiem-thu")
     def nghiem_thu(self, request, pk=None):
         de_tai = self.get_object()
 
-        if de_tai.TrangThai != DeTai.TrangThaiDeTai.CHO_NGHIEM_THU:
+        if de_tai.TrangThai != DeTai.TrangThaiDeTai.CHONGHIEMTHU:
             raise ValidationError(
                 f"Chỉ nghiệm thu đề tài đang 'Chờ Nghiệm Thu'. "
                 f"Hiện tại: '{de_tai.get_TrangThai_display()}'."
             )
 
-        # Lấy tất cả phiếu đánh giá của đề tài này
         danh_sach_dg = DanhGia.objects.filter(MaDeTai=de_tai)
         if not danh_sach_dg.exists():
             raise ValidationError(
@@ -402,16 +408,13 @@ class DeTaiViewSet(BaseViewSet):
                 "Hội đồng phải chấm điểm trước khi nghiệm thu."
             )
 
-        # Tính điểm tổng hợp
         ket_qua  = danh_sach_dg.aggregate(diem_tb=Avg("DiemSo"))
         diem_tb  = round(ket_qua["diem_tb"], 2)
         xep_loai = _tinh_xep_loai(diem_tb)
 
-        # Cập nhật tất cả phiếu với xếp loại chung
         danh_sach_dg.update(XepLoai=xep_loai)
 
-        # STATE: CHONGHIEMTHU → DANGHIEMTHU
-        de_tai.TrangThai  = DeTai.TrangThaiDeTai.DA_NGHIEM_THU
+        de_tai.TrangThai  = DeTai.TrangThaiDeTai.DANGHIEMTHU
         de_tai.DiemTongHop = diem_tb
         de_tai.save(update_fields=["TrangThai", "DiemTongHop"])
 
@@ -423,13 +426,9 @@ class DeTaiViewSet(BaseViewSet):
             "SoPhieuCham"  : danh_sach_dg.count(),
         })
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # [SINH VIÊN] Xem kết quả đánh giá đề tài của mình
-    # GET /api/de-tai/{MaDeTai}/ket-qua-danh-gia/
-    # ═══════════════════════════════════════════════════════════════════════
     @action(detail=True, methods=["get"], url_path="ket-qua-danh-gia")
     def ket_qua_danh_gia(self, request, pk=None):
-        de_tai = self.get_object()  # get_queryset() đã lọc theo vai trò
+        de_tai = self.get_object() 
 
         danh_sach = DanhGia.objects.filter(
             MaDeTai=de_tai
@@ -451,20 +450,70 @@ class DeTaiViewSet(BaseViewSet):
             "ChiTiet"    : KetQuaDanhGiaSerializer(danh_sach, many=True).data,
         })
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # Override get_permissions() — cập nhật để bao gồm các action mới
-    # ═══════════════════════════════════════════════════════════════════════
+    @action(detail=True, methods=["patch"], url_path="phan-cong-hoi-dong")
+    def phan_cong_hoi_dong(self, request, pk=None):
+        de_tai = self.get_object()
+        
+        # Chỉ đề tài đang chờ nghiệm thu hoặc đang thực hiện mới phân công HĐ được
+        if de_tai.TrangThai not in [DeTai.TrangThaiDeTai.DANGTHUCHIEN, DeTai.TrangThaiDeTai.CHONGHIEMTHU]:
+            raise ValidationError(
+                f"Không thể phân công hội đồng lúc này. Trạng thái hiện tại: '{de_tai.get_TrangThai_display()}'."
+            )
+
+        serializer = PhanCongHoiDongSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        ma_hoi_dong = serializer.validated_data["MaHoiDong"]
+        hoi_dong = get_object_or_404(HoiDong, pk=ma_hoi_dong)
+
+        # 🌟 THUẬT TOÁN CHẶN XUNG ĐỘT LỢI ÍCH (CONFLICT OF INTEREST)
+        # 1. Lấy danh sách mã GV đang ngồi trong Hội đồng này
+        thanh_vien_hd_ids = set(ThanhVienHoiDong.objects.filter(MaHoiDong=hoi_dong).values_list("MaGV_id", flat=True))
+        
+        # 2. Lấy danh sách mã GV đang Hướng dẫn đề tài này
+        gv_huong_dan_ids = set(HuongDan.objects.filter(MaDeTai=de_tai).values_list("MaGV_id", flat=True))
+
+        # 3. Tìm phần giao nhau (Có ông GV nào vừa hướng dẫn vừa ngồi hội đồng không?)
+        conflict_gvs = thanh_vien_hd_ids.intersection(gv_huong_dan_ids)
+        
+        if conflict_gvs:
+            # Lấy tên của GV vi phạm đầu tiên để báo lỗi cho thân thiện
+            from .models import GiangVien
+            gv_loi = GiangVien.objects.filter(MaGV__in=conflict_gvs).first()
+            raise ValidationError(
+                f"Vi phạm quy chế: Giảng viên {gv_loi.TenGV} ({gv_loi.MaGV}) đang là người hướng dẫn đề tài này, "
+                f"do đó không thể phân công đề tài vào Hội đồng {hoi_dong.MaHoiDong}."
+            )
+
+        # Gắn hội đồng vào đề tài nếu an toàn
+        de_tai.MaHoiDong = hoi_dong
+        de_tai.save(update_fields=["MaHoiDong"])
+
+        
+
+        return Response({
+            "message": f"Đã phân công Hội đồng [{hoi_dong.MaHoiDong}] đánh giá Đề tài [{de_tai.MaDeTai}].",
+            "MaHoiDong": hoi_dong.MaHoiDong,
+            "TenHoiDong": hoi_dong.TenHoiDong
+        }, status=status.HTTP_200_OK)
+
+
     def get_permissions(self):
-        HANH_DONG_CAN_BO = [
-            "create", "update", "partial_update", "destroy",
-            "duyet_de_tai", "tu_choi_de_tai",
-            "gui_len_hoi_dong", "phan_cong_hoi_dong", "nghiem_thu",
-        ]
         if self.action == "create":
             return [IsSinhVien()]
+
+        # Đã cập nhật đầy đủ tên hàm tại đây
+        if self.action in ["duyet_de_tai", "tu_choi_de_tai", "xac_nhan_huong_dan", "tu_choi_huong_dan"]:
+            return [IsAuthenticated()]
+
+        HANH_DONG_CAN_BO = [
+            "update", "partial_update", "destroy",
+            "gui_len_hoi_dong", "phan_cong_hoi_dong", 
+            "them_thanh_vien_hoi_dong", "nghiem_thu"
+        ]
         if self.action in HANH_DONG_CAN_BO:
             return [IsCanBoQuanLy()]
-        # list, retrieve, ket_qua_danh_gia → mọi người đăng nhập
+
         return [IsAuthenticated()]
 
 
@@ -492,7 +541,10 @@ class SinhVienViewSet(BaseViewSet):
         base_qs = SinhVien.objects.select_related("TenDangNhap", "MaDeTai")
 
         if vai_tro == TaiKhoan.QuyenHanChoices.SINH_VIEN:
-            return base_qs.filter(TenDangNhap__TenDangNhap=user.username)
+            # BẮT BUỘC PHẢI CÓ 2 DÒNG NÀY ĐỂ XEM ĐƯỢC CẢ LỚP
+            if self.action == "list":
+                return base_qs.all()
+            return base_qs.filter(TenDangNhap_id=user.username)
 
         if vai_tro == TaiKhoan.QuyenHanChoices.GIANG_VIEN:
             gv = _get_giang_vien(user)
@@ -546,32 +598,44 @@ class HuongDanViewSet(BaseViewSet):
     ordering         = ["MaHuongDan"]
 
     def get_permissions(self):
-        # Chỉ QUANLY được phân công hướng dẫn
-        if self.action in ["create", "update", "partial_update", "destroy"]:
+        if self.action == "create":
+            return [IsSinhVien()]
+
+        # THÊM TÊN 2 HÀM MỚI VÀO ĐÂY ĐỂ CHO PHÉP ĐI QUA
+        if self.action in ["duyet_de_tai", "tu_choi_de_tai", "xac_nhan_huong_dan", "tu_choi_huong_dan"]:
+            return [IsAuthenticated()] 
+
+        HANH_DONG_CAN_BO = [
+            "update", "partial_update", "destroy",
+            "gui_len_hoi_dong", "phan_cong_hoi_dong", 
+            "them_thanh_vien_hoi_dong", "nghiem_thu",
+        ]
+        if self.action in HANH_DONG_CAN_BO:
             return [IsCanBoQuanLy()]
+
         return [IsAuthenticated()]
 
     def get_queryset(self):
-        user    = self.request.user
+        user = self.request.user
         vai_tro = _get_vai_tro(user)
         base_qs = HuongDan.objects.select_related("MaDeTai", "MaGV")
-
+        
         if vai_tro == TaiKhoan.QuyenHanChoices.GIANG_VIEN:
             gv = _get_giang_vien(user)
-            return base_qs.filter(MaGV=gv) if gv else HuongDan.objects.none()
-
-        if vai_tro == TaiKhoan.QuyenHanChoices.SINH_VIEN:
-            sv = _get_sinh_vien(user)
-            if sv is None or sv.MaDeTai is None:
+            if gv is None:
                 return HuongDan.objects.none()
-            return base_qs.filter(MaDeTai=sv.MaDeTai)
-
+            
+            # CHỈ HIỂN THỊ LỜI MỜI KHI CÁN BỘ ĐÃ DUYỆT (CHO_XAC_NHAN_GV)
+            return base_qs.filter(
+                MaGV=gv,
+                MaDeTai__TrangThai=DeTai.TrangThaiDeTai.CHO_XAC_NHAN_GV,
+                TrangThaiXacNhan=HuongDan.TrangThaiLoiMoi.CHO_XAC_NHAN
+            )
+            
         return base_qs.all()
-    # api/views.py — THÊM VÀO class HuongDanViewSet
-
     # ═══════════════════════════════════════════════════════════════════════
-    # [GIẢNG VIÊN] Xác nhận nhận hướng dẫn đề tài
-    # PATCH /api/huong-dan/{MaHuongDan}/xac-nhan/
+    # [GIẢNG VIÊN] ĐỒNG Ý hướng dẫn đề tài
+    # PATCH /api/de-tai/{MaDeTai}/xac-nhan/
     # ═══════════════════════════════════════════════════════════════════════
     @action(detail=True, methods=["patch"], url_path="xac-nhan")
     def xac_nhan_huong_dan(self, request, pk=None):
@@ -579,63 +643,74 @@ class HuongDanViewSet(BaseViewSet):
         if vai_tro != TaiKhoan.QuyenHanChoices.GIANG_VIEN:
             raise PermissionDenied("Chỉ Giảng viên mới được xác nhận hướng dẫn.")
 
-        huong_dan  = self.get_object()
+        # pk ở đây chính là MaDeTai (VD: DT001)
+        de_tai = self.get_object() 
         giang_vien = _get_giang_vien(request.user)
 
-        # Kiểm tra đây có phải phân công của chính GV đang đăng nhập không
-        if huong_dan.MaGV != giang_vien:
-            raise PermissionDenied(
-                "Bạn không thể xác nhận phân công hướng dẫn của người khác."
-            )
+        # Truy tìm bản ghi Hướng Dẫn liên kết giữa Đề tài này và Giảng viên này
+        from django.shortcuts import get_object_or_404
+        huong_dan = get_object_or_404(HuongDan, MaDeTai=de_tai, MaGV=giang_vien)
 
-        if huong_dan.DaXacNhan:
-            return Response({
-                "message"    : "Bạn đã xác nhận hướng dẫn đề tài này trước đó.",
-                "NgayXacNhan": huong_dan.NgayXacNhan,
-            })
+        # Cập nhật trạng thái
+        huong_dan.TrangThaiXacNhan = HuongDan.TrangThaiLoiMoi.DA_XAC_NHAN
+        huong_dan.save(update_fields=["TrangThaiXacNhan"])
 
-        huong_dan.DaXacNhan  = True
-        huong_dan.NgayXacNhan = timezone.now()
-        huong_dan.save(update_fields=["DaXacNhan", "NgayXacNhan"])
+        de_tai.TrangThai = DeTai.TrangThaiDeTai.DANGTHUCHIEN
+        de_tai.save(update_fields=["TrangThai"])
 
-        return Response({
-            "message"    : f"Đã xác nhận hướng dẫn đề tài [{huong_dan.MaDeTai_id}].",
-            "DaXacNhan"  : True,
-            "NgayXacNhan": huong_dan.NgayXacNhan,
-        })
+        sv_chu_nhiem = de_tai.sinh_viens.first()
+        if sv_chu_nhiem:
+            ThongBao.objects.create(
+                TenDangNhap=sv_chu_nhiem.TenDangNhap,
+                NoiDung=f"Chúc mừng! Giảng viên {giang_vien.TenGV} đã chấp nhận hướng dẫn đề tài '{de_tai.TenDeTai}' của nhóm bạn. Đề tài đã được kích hoạt thực hiện.",
+                Loai=ThongBao.LoaiThongBao.DE_TAI )
+
+        return Response({"message": "Thầy/Cô đã chấp nhận hướng dẫn. Đề tài đã chính thức được kích hoạt."})
+
     # ═══════════════════════════════════════════════════════════════════════
-    # [GIẢNG VIÊN] Từ chối nhận hướng dẫn đề tài
-    # DELETE /api/huong-dan/{MaHuongDan}/tu-choi/
+    # [GIẢNG VIÊN] TỪ CHỐI hướng dẫn đề tài
+    # PATCH /api/de-tai/{MaDeTai}/tu-choi-gv/
     # ═══════════════════════════════════════════════════════════════════════
-    @action(detail=True, methods=["delete"], url_path="tu-choi")
+    @action(detail=True, methods=["patch"], url_path="tu-choi")
     def tu_choi_huong_dan(self, request, pk=None):
         vai_tro = _get_vai_tro(request.user)
         if vai_tro != TaiKhoan.QuyenHanChoices.GIANG_VIEN:
             raise PermissionDenied("Chỉ Giảng viên mới được từ chối hướng dẫn.")
 
-        huong_dan  = self.get_object()
+        de_tai = self.get_object()
         giang_vien = _get_giang_vien(request.user)
 
-        # Kiểm tra đây có phải yêu cầu gửi cho GV đang đăng nhập không
-        if huong_dan.MaGV != giang_vien:
-            raise PermissionDenied("Bạn không thể từ chối yêu cầu của người khác.")
+        huong_dan = get_object_or_404(HuongDan, MaDeTai=de_tai, MaGV=giang_vien)
 
-        # Nếu đã xác nhận rồi thì không cho phép hủy ngang dễ dàng
-        if huong_dan.DaXacNhan:
-            raise ValidationError("Bạn đã xác nhận hướng dẫn đề tài này rồi. Nếu muốn hủy, hãy liên hệ Cán bộ Quản lý.")
+        huong_dan.TrangThaiXacNhan = HuongDan.TrangThaiLoiMoi.TU_CHOI
+        huong_dan.save(update_fields=["TrangThaiXacNhan"])
 
-        # Xóa bản ghi hướng dẫn để nhóm sinh viên biết là bị từ chối và có thể mời GV khác
-        ma_de_tai = huong_dan.MaDeTai_id
-        huong_dan.delete()
+        de_tai.TrangThai = DeTai.TrangThaiDeTai.GV_TU_CHOI
+        de_tai.save(update_fields=["TrangThai"])
 
-        return Response({
-            "message": f"Đã từ chối hướng dẫn đề tài [{ma_de_tai}].",
-        }, status=status.HTTP_200_OK)
+        sv_chu_nhiem = de_tai.sinh_viens.first()
+        if sv_chu_nhiem: ThongBao.objects.create(
+            TenDangNhap=sv_chu_nhiem.TenDangNhap,
+            NoiDung=f"Cảnh báo: Giảng viên đã từ chối hướng dẫn đề tài '{de_tai.TenDeTai}'. Vui lòng vào không gian quản lý để tiến hành đề xuất Giảng viên mới.",
+            Loai=ThongBao.LoaiThongBao.DE_TAI
+        ) 
+
+
+
+        return Response({"message": "Thầy/Cô đã từ chối hướng dẫn. Sinh viên sẽ nhận được thông báo để đổi Giảng viên khác."})
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # [GIẢNG VIÊN] ĐỒNG Ý hướng dẫn đề tài
+    # PATCH /api/huong-dan/{MaHuongDan}/xac-nhan/
+    # ═══════════════════════════════════════════════════════════════════════
+    
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 7. TIẾN ĐỘ — /api/tien-do/
 # ═══════════════════════════════════════════════════════════════════════════════
+
+
 class TienDoViewSet(BaseViewSet):
     """
     IsSinhVienDungNhom được áp dụng cho update/partial_update/destroy:
@@ -648,7 +723,7 @@ class TienDoViewSet(BaseViewSet):
     ordering         = ["-NgayCapNhat"]
     pagination_class = LonPagination    # Override: 20 bản ghi/trang
     filterset_fields = ["MaDeTai"]
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     def get_permissions(self):
         if self.action == "create":
             return [IsSinhVien()]
@@ -687,15 +762,37 @@ class TienDoViewSet(BaseViewSet):
         sv = _get_sinh_vien(self.request.user)
         if sv is None or sv.MaDeTai is None:
             raise ValidationError("Bạn chưa có đề tài. Không thể cập nhật tiến độ.")
-        if sv.MaDeTai.TrangThai != DeTai.TrangThaiDeTai.DANG_THUC_HIEN:
+            
+        if sv.MaDeTai.TrangThai != DeTai.TrangThaiDeTai.DANGTHUCHIEN:
             raise ValidationError(
                 f"Chỉ cập nhật tiến độ khi đề tài đang 'Thực Hiện'. "
                 f"Hiện tại: '{sv.MaDeTai.get_TrangThai_display()}'."
             )
+            
         ty_le = serializer.validated_data.get("TyLeHoanThanh", 0)
         if not (0 <= ty_le <= 100):
             raise ValidationError("Tỷ lệ hoàn thành phải trong khoảng 0–100%.")
-        serializer.save(MaDeTai=sv.MaDeTai)
+            
+        # 1. Lưu bản ghi tiến độ vào Database
+        tien_do = serializer.save(MaDeTai=sv.MaDeTai)
+
+        # 🌟 2. THÊM MỚI: BẮN THÔNG BÁO CHO GIẢNG VIÊN HƯỚNG DẪN
+        from .models import HuongDan, ThongBao
+        
+        # Lùng tìm xem Giảng viên nào đã bấm "Đã đồng ý hướng dẫn" đề tài này
+        ds_huong_dan = HuongDan.objects.filter(
+            MaDeTai=sv.MaDeTai,
+            TrangThaiXacNhan=HuongDan.TrangThaiLoiMoi.DA_XAC_NHAN
+        ).select_related('MaGV')
+
+        # Duyệt qua danh sách để bắn thông báo (Phòng hờ trường hợp đề tài có đồng hướng dẫn)
+        for hd in ds_huong_dan:
+            ThongBao.objects.create(
+                TenDangNhap_id=hd.MaGV.TenDangNhap_id, # Tài khoản nhận là của GVHD
+                NoiDung=f"Sinh viên {sv.TenSV} (Lớp {sv.Lop}) vừa nộp báo cáo tiến độ định kỳ mới: Đạt {ty_le}% khối lượng công việc. Vui lòng vào soát xét và cho điểm.",
+                Loai=ThongBao.LoaiThongBao.TIEN_DO
+            )
+
     # api/views.py — THÊM VÀO class TienDoViewSet
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -745,9 +842,10 @@ class TienDoViewSet(BaseViewSet):
         co_phu_trach = HuongDan.objects.filter(
             MaDeTai=tien_do.MaDeTai,
             MaGV=giang_vien,
-            DaXacNhan=True,
+            TrangThaiXacNhan=HuongDan.TrangThaiLoiMoi.DA_XAC_NHAN,
         ).exists()
 
+        
         if not co_phu_trach:
             raise PermissionDenied(
                 "Bạn không phụ trách đề tài này hoặc chưa xác nhận hướng dẫn."
@@ -755,13 +853,24 @@ class TienDoViewSet(BaseViewSet):
 
         # Lưu nhận xét kèm thời gian
         tien_do.NhanXetGVHD = serializer.validated_data["NhanXetGVHD"]
+        tien_do.DiemGVHD = request.data.get("DiemGVHD", tien_do.DiemGVHD)
         tien_do.NgayNhanXet  = timezone.now()
-        tien_do.save(update_fields=["NhanXetGVHD", "NgayNhanXet"])
+        tien_do.save(update_fields=["NhanXetGVHD", "NgayNhanXet", "DiemGVHD"])
+
+        sv_chu_nhiem = tien_do.MaDeTai.sinh_viens.first()
+        if sv_chu_nhiem:
+            ThongBao.objects.create(
+                TenDangNhap=sv_chu_nhiem.TenDangNhap,
+                NoiDung=f"Giảng viên hướng dẫn đã cập nhật nhận xét và chấm điểm tiến độ định kỳ đạt {tien_do.TyLeHoanThanh}% cho đề tài của bạn.",
+                Loai=ThongBao.LoaiThongBao.TIEN_DO
+            ) 
+
 
         return Response({
             "message"    : "Đã lưu nhận xét thành công.",
             "MaTienDo"   : tien_do.MaTienDo,
             "NhanXetGVHD": tien_do.NhanXetGVHD,
+            "DiemGVHD"  : tien_do.DiemGVHD,
             "NgayNhanXet": tien_do.NgayNhanXet,
         })
 
@@ -781,7 +890,7 @@ def _la_thanh_vien_hoi_dong_cua_de_tai(user, de_tai) -> bool:
 
 class BaoCaoViewSet(BaseViewSet):
     # ── BẮT BUỘC: cho phép Django nhận multipart/form-data từ form upload ──
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -843,47 +952,137 @@ class BaoCaoViewSet(BaseViewSet):
                 context["user_co_quyen_xem_file"] = True
 
             elif vai_tro == TaiKhoan.QuyenHanChoices.SINH_VIEN:
-                # Sinh viên xem được file báo cáo của chính mình
+                
                 context["user_co_quyen_xem_file"] = True
+            # elif vai_tro == TaiKhoan.QuyenHanChoices.GIANG_VIEN:
+                
+            #     context["user_co_quyen_xem_file"] = True
 
-            elif vai_tro == TaiKhoan.QuyenHanChoices.GIANG_VIEN:
-                # ── QUY TẮC: chỉ thành viên HỘI ĐỒNG CHẤM mới xem được ────
-                # Giảng viên hướng dẫn (không thuộc HĐ) KHÔNG được xem file
-                # để tránh việc GVHD biết trước nội dung trước khi HĐ chấm
-                pk = self.kwargs.get("pk")
-                if pk:
-                    de_tai = BaoCao.objects.filter(pk=pk).select_related(
-                        "MaDeTai", "MaDeTai__MaHoiDong"
-                    ).first()
-                    if de_tai:
-                        context["user_co_quyen_xem_file"] = (
-                            _la_thanh_vien_hoi_dong_cua_de_tai(user, de_tai.MaDeTai)
-                        )
-                else:
-                    context["user_co_quyen_xem_file"] = False
-            else:
-                context["user_co_quyen_xem_file"] = False
-
+            giang_vien = _get_giang_vien(user)
+            co_trong_hoi_dong = ThanhVienHoiDong.objects.filter(MaGV=giang_vien).exists()
+            context["user_co_quyen_xem_file"] = co_trong_hoi_dong
         return context
+    
+    @action(detail=True, methods=["post"], url_path="chot-nghiem-thu")
+    def chot_nghiem_thu(self, request, pk=None):
+        bao_cao = self.get_object()
+        de_tai = bao_cao.MaDeTai
+        
+        # 1. Bắt lỗi: Chỉ chốt khi đang ở trạng thái chờ
+        if de_tai.TrangThai != DeTai.TrangThaiDeTai.CHONGHIEMTHU:
+            raise ValidationError("Đề tài này không ở trạng thái chờ nghiệm thu!")
+
+
+        from .models import DanhGia
+        from django.db.models import Avg
+        
+        # 🌟 2. LẤY PHIẾU ĐIỂM (Sửa thành MaDeTai_id để Django query chuẩn xác 100%)
+        phieu_diem = DanhGia.objects.filter(MaDeTai_id=de_tai.MaDeTai)
+        
+        if phieu_diem.count() == 0:
+            raise ValidationError("Chưa có giảng viên nào chấm điểm đề tài này!")
+
+
+        # 🌟 3. TÍNH ĐIỂM TRUNG BÌNH (Đã sửa đồng bộ tên biến phieu_diem)
+        diem_tb = phieu_diem.aggregate(Avg('DiemSo'))['DiemSo__avg']
+        
+        if diem_tb is None:
+            raise ValidationError("Lỗi hệ thống: Không thể tính được điểm trung bình.")
+            
+        diem_tb_lam_tron = round(diem_tb, 2)
+
+
+        # 4. Ghi điểm vào Bảng Báo Cáo
+        bao_cao.DiemTrungBinh = diem_tb_lam_tron
+        bao_cao.save(update_fields=['DiemTrungBinh'])
+
+
+        # 5. Cập nhật trạng thái và Điểm chung cuộc cho Bảng Đề Tài (Rất quan trọng để Sinh viên thấy điểm)
+        de_tai.TrangThai = DeTai.TrangThaiDeTai.DANGHIEMTHU
+        de_tai.DiemTongHop = diem_tb_lam_tron
+        de_tai.save(update_fields=['TrangThai', 'DiemTongHop'])
+
+
+        return Response({
+            "message": f"Đã chốt điểm và nghiệm thu thành công! Điểm chung cuộc: {diem_tb_lam_tron}",
+            "DiemTrungBinh": diem_tb_lam_tron
+        })
+
+
+
+
 
     def perform_create(self, serializer):
-        sv = _get_sinh_vien(self.request.user)
-        if sv is None or sv.MaDeTai is None:
-            raise ValidationError("Bạn chưa có đề tài.")
+        # 1. Lưu báo cáo vào Database
+        ma_de_tai_tu_frontend = self.request.data.get("MaDeTai")
+        
+        # CHỈ CẦN TRUYỀN NGÀY NỘP VÀ MÃ ĐỀ TÀI, XÓA HẲN CHỮ 'DiemTrungBinh' ĐI NÉ
+        bao_cao = serializer.save(
+            NgayNop=timezone.now(),
+            MaDeTai_id=ma_de_tai_tu_frontend
+        )
 
-        de_tai = sv.MaDeTai
-        if de_tai.TrangThai != DeTai.TrangThaiDeTai.DANG_THUC_HIEN:
-            raise ValidationError(
-                f"Chỉ nộp báo cáo khi đề tài đang 'Thực Hiện'. "
-                f"Hiện tại: '{de_tai.get_TrangThai_display()}'."
+        # 2. Lấy cái đề tài của báo cáo đó ra
+        de_tai = bao_cao.MaDeTai
+        
+        # 3. Tự động đổi trạng thái đề tài sang CHỜ NGHIỆM THU
+        from .models import DeTai
+        de_tai.TrangThai = DeTai.TrangThaiDeTai.CHONGHIEMTHU 
+        de_tai.save(update_fields=['TrangThai'])
+        from .models import CanBoQuanLy
+        ds_can_bo = CanBoQuanLy.objects.values_list('TenDangNhap_id', flat=True)
+        for cb_id in ds_can_bo:
+            ThongBao.objects.create(
+                TenDangNhap_id=cb_id, NoiDung=f"Đề tài [{de_tai.MaDeTai}] đã chốt nộp báo cáo toàn văn cuối kỳ. Hệ thống đang chờ phân công Hội đồng nghiệm thu.",
+                Loai=ThongBao.LoaiThongBao.HOI_DONG
+            ) 
+
+    @action(detail=True, methods=["patch"], url_path="phan-cong-hoi-dong")
+    def phan_cong_hoi_dong(self, request, pk=None):
+        from .models import HoiDong, GiangVien, ThanhVienHoiDong
+        bao_cao = self.get_object()
+        ma_hoi_dong = request.data.get("MaHoiDong")
+        
+        if not ma_hoi_dong:
+            return Response({"error": "Thiếu mã Hội đồng"}, status=400)
+            
+        from .models import HoiDong
+        hoi_dong = get_object_or_404(HoiDong, pk=ma_hoi_dong)
+        thanh_vien_hd_ids = set(ThanhVienHoiDong.objects.filter(MaHoiDong=hoi_dong).values_list("MaGV_id", flat=True))
+
+        gv_huong_dan_ids = set(HuongDan.objects.filter(MaDeTai=bao_cao.MaDeTai).values_list("MaGV_id", flat=True))
+        
+        conflict = thanh_vien_hd_ids.intersection(gv_huong_dan_ids)
+        if conflict:
+            gv_loi = GiangVien.objects.filter(MaGV__in=conflict).first()
+            raise ValidationError(f"Vi phạm quy chế: {gv_loi.TenGV} ({gv_loi.MaGV}) đang là GVHD của đề tài này, không thể phân công vào Hội đồng {hoi_dong.MaHoiDong}.")
+
+        # Gán báo cáo này cho Hội đồng đó
+        bao_cao.MaHoiDong = hoi_dong
+        bao_cao.save(update_fields=["MaHoiDong"])
+        bao_cao.MaDeTai.MaHoiDong = hoi_dong
+        bao_cao.MaDeTai.save(update_fields=["MaHoiDong"])
+        de_tai = bao_cao.MaDeTai
+        sv_chu_nhiem = de_tai.sinh_viens.first()
+        if sv_chu_nhiem:
+            ThongBao.objects.create(
+                TenDangNhap=sv_chu_nhiem.TenDangNhap,
+                NoiDung=f"Đề tài của bạn đã được phân phối về Hội đồng nghiệm thu [{hoi_dong.MaHoiDong} - {hoi_dong.TenHoiDong}]. Hãy chuẩn bị hồ sơ bảo vệ.",
+                Loai=ThongBao.LoaiThongBao.HOI_DONG
+        )
+
+        from .models import ThanhVienHoiDong
+        thanh_viens = ThanhVienHoiDong.objects.filter(MaHoiDong=hoi_dong).select_related('MaGV')
+        for tv in thanh_viens:
+            ThongBao.objects.create(
+                TenDangNhap_id=tv.MaGV.TenDangNhap_id,
+                NoiDung=f"Hệ thống phân công: Thầy/Cô có lịch chấm nghiệm thu đề tài '{de_tai.TenDeTai}' với vai trò {tv.get_VaiTroHD_display() if hasattr(tv, 'get_VaiTroHD_display') else tv.VaiTroHD}.",
+                Loai=ThongBao.LoaiThongBao.HOI_DONG
             )
 
-        serializer.save(MaDeTai=de_tai, NgayNop=timezone.now())
-
-        # STATE: DANGTHUCHIEN → CHONGHIEMTHU
-        de_tai.TrangThai = DeTai.TrangThaiDeTai.CHO_NGHIEM_THU
-        de_tai.save(update_fields=["TrangThai"])
-
+        return Response({
+            "message": f"Đã phân công Báo cáo [{bao_cao.MaBaoCao}] cho Hội đồng [{hoi_dong.MaHoiDong}] chấm điểm."
+        })
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 9. HỘI ĐỒNG — /api/hoi-dong/
@@ -895,9 +1094,19 @@ class HoiDongViewSet(BaseViewSet):
     pagination_class = NhoPagination    # Override: 5 bản ghi/trang
 
     def get_permissions(self):
+        # Chỉ Cán bộ quản lý mới được lập, sửa, xóa Hội đồng
         if self.action in ["create", "update", "partial_update", "destroy"]:
             return [IsCanBoQuanLy()]
         return [IsAuthenticated()]
+
+    def get_serializer_class(self):
+        # SỬA LẠI HÀM NÀY: Dùng Serializer mới cho lúc lập Hội đồng
+        if self.action == "create":
+            return HoiDongTaoMoiSerializer
+        return HoiDongSerializer
+
+    def get_queryset(self):
+        return HoiDong.objects.all()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -963,7 +1172,7 @@ class DanhGiaViewSet(BaseViewSet):
         hoi_dong = get_object_or_404(HoiDong, pk=ma_hoi_dong)
         de_tai   = get_object_or_404(DeTai, pk=ma_de_tai)
 
-        if de_tai.TrangThai != DeTai.TrangThaiDeTai.CHO_NGHIEM_THU:
+        if de_tai.TrangThai != DeTai.TrangThaiDeTai.CHONGHIEMTHU:
             raise ValidationError(
                 f"Chỉ chấm điểm đề tài đang 'Chờ Nghiệm Thu'. "
                 f"Hiện tại: '{de_tai.get_TrangThai_display()}'."
@@ -1010,9 +1219,17 @@ class DanhGiaViewSet(BaseViewSet):
 
             tat_ca_diem.update(XepLoai=xep_loai_tb)
 
-            de_tai.TrangThai   = DeTai.TrangThaiDeTai.DA_NGHIEM_THU
+            de_tai.TrangThai   = DeTai.TrangThaiDeTai.DANGHIEMTHU
             de_tai.DiemTongHop = diem_tb
             de_tai.save(update_fields=["TrangThai", "DiemTongHop"])
+            sv_chu_nhiem = de_tai.sinh_viens.first()
+            if sv_chu_nhiem:
+                ThongBao.objects.create(
+                    TenDangNhap=sv_chu_nhiem.TenDangNhap,
+                    NoiDung=f"Tin chốt: Đề tài của bạn đã hoàn tất quá trình nghiệm thu. Điểm tổng hợp cuối cùng của Hội đồng: {diem_tb} điểm. Xếp loại: {xep_loai_tb}.",
+                    Loai=ThongBao.LoaiThongBao.HOI_DONG
+            )
+
     
 
 # Thêm vào api/views.py
@@ -1108,3 +1325,47 @@ class BaiBaoNCKHViewSet(viewsets.GenericViewSet):
         instance   = get_object_or_404(self.get_queryset(), pk=pk)
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+    
+from .models import TaiLieu
+from .serializers import TaiLieuSerializer
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# X. THƯ VIỆN VĂN BẢN — /api/tai-lieu/
+# ═══════════════════════════════════════════════════════════════════════════════
+class TaiLieuViewSet(BaseViewSet):
+    queryset = TaiLieu.objects.all()
+    serializer_class = TaiLieuSerializer
+    # Hỗ trợ nhận cả dữ liệu JSON thường và định dạng File đính kèm Multipart form
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    search_fields = ["TenTaiLieu"]
+    filterset_fields = ["Loai"]
+
+    def get_permissions(self):
+        # Chỉ có Cán bộ quản lý mới có quyền Thêm, Sửa, Xóa tài liệu
+        if self.action in ["create", "update", "partial_update", "destroy"]:
+            return [IsCanBoQuanLy()]
+        # Tất cả các vai trò khác (Sinh viên, Giảng viên) sau khi đăng nhập đều được vào xem công khai
+        return [IsAuthenticated()]
+    
+
+# Thêm vào file api/views.py
+from .models import ThongBao
+from .serializers import ThongBaoSerializer
+
+class ThongBaoViewSet(BaseViewSet):
+    serializer_class = ThongBaoSerializer
+    pagination_class = NhoPagination # Hiện khoảng 5-10 thông báo mỗi lần load
+
+    def get_queryset(self):
+        # Lọc thông minh: Ai đăng nhập thì chỉ thấy thông báo của người đó
+        user = self.request.user
+        return ThongBao.objects.filter(TenDangNhap_id=user.username)
+
+    # API phụ: Bấm nút "Đánh dấu đã đọc tất cả"
+    @action(detail=False, methods=["post"], url_path="doc-het")
+    def doc_het(self, request):
+        user = self.request.user
+        ThongBao.objects.filter(TenDangNhap_id=user.username, IsRead=False).update(IsRead=True)
+        return Response({"message": "Đã đánh dấu đọc tất cả thông báo."})
+
+

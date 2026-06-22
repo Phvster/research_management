@@ -25,6 +25,10 @@ class DeTaiFilter(django_filters.FilterSet):
         lookup_expr="icontains",
         label="Tìm theo tên đề tài",
     )
+    nam = django_filters.NumberFilter(
+        field_name="NgayTao", 
+        lookup_expr="year"
+    )
 
     class Meta:
         model  = DeTai
