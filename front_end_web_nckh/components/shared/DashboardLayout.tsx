@@ -10,7 +10,7 @@ import {
     SettingOutlined,
     LogoutOutlined,
     SearchOutlined,
-    BellOutlined,
+    TrophyOutlined,
     TeamOutlined,
     LineChartOutlined,
     CheckSquareOutlined,
@@ -52,7 +52,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const studentMenu = [
         { icon: <HomeOutlined />, key: '/' },
         { icon: <AppstoreOutlined />, key: '/student_dashboard' },
-        { icon: <FolderOutlined />, key: '/student_dashboard/projects' },
+        { icon: <TrophyOutlined />, key: '/student_dashboard/score' },
         { icon: <BookOutlined />, key: '/student_dashboard/library' },
         { icon: <UserOutlined />, key: '/student_dashboard/profile' },
     ];
@@ -70,6 +70,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { icon: <TeamOutlined />, key: '/manager_dashboard/users' },
         { icon: <KeyOutlined />, key: '/manager_dashboard/system' },
         { icon: <UserOutlined />, key: '/manager_dashboard/profile' },
+        { icon: <BookOutlined />, key: '/manager_dashboard/library' },
     ];
 
     const role = user?.QuyenHan;
@@ -96,8 +97,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <Sider
                     width={55}
                     theme="light"
-                    className="sticky top-0 h-screen z-50"
-                    style={{ borderRight: 0 }}
+                    className="sticky top-0 z-50"
+                    style={{ borderRight: 0, height: '100vh' }}
                 >
                     <div className="flex flex-col h-full items-center py-6">
                         <div className="mb-10 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => router.push('/')}>
@@ -129,7 +130,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                                 );
                             })}
                         </div>
-                        <div className="flex flex-col gap-6 items-center text-gray-400 text-[20px] w-full">
+                        <div className="flex flex-col gap-6 items-center text-gray-400 text-[20px] w-full mt-auto">
                             <div className="w-11 h-11 flex justify-center items-center rounded-xl hover:bg-gray-100 hover:text-gray-700 cursor-pointer transition-all">
                                 <SettingOutlined />
                             </div>

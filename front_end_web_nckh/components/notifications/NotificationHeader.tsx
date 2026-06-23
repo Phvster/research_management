@@ -3,8 +3,8 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { Badge, Popover, List, Button, Spin, Typography, Tag } from 'antd';
-import { BellOutlined, CheckCircleOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { Badge, Popover, List, Button, Spin, Typography, Tag, Popconfirm } from 'antd';
+import { BellOutlined, CheckCircleOutlined, InfoCircleOutlined, DeleteOutlined, ClearOutlined } from '@ant-design/icons';
 import { sendRequest } from '@/utils/api';
 
 
@@ -37,6 +37,36 @@ export default function NotificationHeader() {
         const interval = setInterval(fetchNotifications, 30000);
         return () => clearInterval(interval);
     }, []);
+
+    const handleDeleteNotification = async (maThongBao: number, e: React.MouseEvent) => {
+        e.stopPropagation(); // Ngăn không cho click nhầm vào dòng thông báo
+        try {
+            await sendRequest({
+                url: `http://localhost:8000/api/thong-bao/${maThongBao}/`,
+                method: 'DELETE'
+            });
+            // Cập nhật lại danh sách local (xóa item đó đi)
+            setNotifications(prev => prev.filter((item: any) => item.MaThongBao !== maThongBao));
+            setUnreadCount(prev => Math.max(0, prev - 1)); // Giảm số chấm đỏ nếu có
+        } catch (error) {
+            console.error("Lỗi xóa thông báo:", error);
+        }
+    };
+
+
+    // Xóa tất cả thông báo
+    const handleClearAll = async () => {
+        try {
+            await sendRequest({
+                url: `http://localhost:8000/api/thong-bao/xoa-tat-ca/`,
+                method: 'DELETE'
+            });
+            setNotifications([]); // Xóa trắng danh sách
+            setUnreadCount(0);    // Tắt chấm đỏ
+        } catch (error) {
+            console.error("Lỗi dọn dẹp thông báo:", error);
+        }
+    };
 
 
     // ================= XỬ LÝ ĐỌC TIN NHẮN / ĐỌC HẾT =================
@@ -88,6 +118,13 @@ export default function NotificationHeader() {
                         Đọc tất cả
                     </Button>
                 )}
+                {notifications.length > 0 && (
+                    <Popconfirm title="Xóa toàn bộ thông báo?" onConfirm={handleClearAll} okText="Xóa hết" cancelText="Hủy" okButtonProps={{ danger: true }}>
+                        <Button type="text" size="small" danger icon={<ClearOutlined />} className="text-xs font-semibold">
+                            Dọn dẹp
+                        </Button>
+                    </Popconfirm>)}
+
             </div>
 
 
@@ -118,6 +155,11 @@ export default function NotificationHeader() {
             </Spin>
         </div>
     );
+
+
+
+
+
 
 
     return (

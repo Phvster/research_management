@@ -175,6 +175,23 @@ export default function StudentDashboardPage() {
         if (!uploadFile) return messageApi.error('Quên chọn file báo cáo rồi kìa!');
         if (!project) return messageApi.error('Lỗi: Bạn chưa có đề tài.');
 
+        const lastProgress = progressList.length > 0
+            ? Math.max(...progressList.map(p => p.TyLeHoanThanh))
+            : 0;
+
+
+        if (newProgress < 30) {
+            return messageApi.error('Tỷ lệ hoàn thành tối thiểu phải từ 30% trở lên!');
+        }
+
+
+        if (newProgress <= lastProgress) {
+            return messageApi.error(`Tỷ lệ hoàn thành phải lớn hơn lần trước (${lastProgress}%)`);
+        }
+
+
+
+
 
         setIsSubmitting(true);
         const formData = new FormData();
@@ -217,6 +234,8 @@ export default function StudentDashboardPage() {
         } finally {
             setIsSubmitting(false);
         }
+
+
     };
 
 
@@ -271,20 +290,22 @@ export default function StudentDashboardPage() {
             }
         });
     };
-
-
-    const getProgressBarWidth = () => {
+    const getTienDoHienThi = () => {
         if (!project) return 0;
-        if (project.TrangThai === 'CHODUYET') return 0;
-        if (project.TrangThai === 'DANGHIEMTHU') return 100;
-
-
-        if (progressPercent >= 50) {
-            return Math.max(66.67, progressPercent);
-        } else {
-            return Math.max(33.33, progressPercent);
+        switch (project.TrangThai) {
+            case 'CHODUYET': return 10;
+            case 'CHO_XAC_NHAN_GV': return 20;
+            case 'GV_TU_CHOI': return 15;
+            case 'DANGTHUCHIEN': return Math.max(30, progressPercent);
+            case 'CHONGHIEMTHU': return Math.max(80, progressPercent);
+            case 'DANGHIEMTHU': return 100;
+            default: return 0;
         }
     };
+
+
+
+
 
 
     if (loading) return <div className="p-8"><Skeleton active paragraph={{ rows: 12 }} /></div>;
@@ -309,7 +330,7 @@ export default function StudentDashboardPage() {
                             icon={<UploadOutlined />}
                             className="font-semibold bg-[#A31D1D] border-none h-10 px-4 rounded-lg shadow-sm hover:scale-105 transition-transform"
                             onClick={() => {
-                                setNewProgress(progressPercent || 0);
+                                setNewProgress(progressList[0]?.TyLeHoanThanh || 0);
                                 setIsUploadModalVisible(true);
                             }}
                         >
@@ -357,14 +378,14 @@ export default function StudentDashboardPage() {
                                     <div>
                                         <div className="flex justify-between items-end mb-12">
                                             <span className="text-sm font-bold text-gray-800">Tiến độ thực hiện chung</span>
-                                            <span className="text-[#A31D1D] font-black text-lg">{progressPercent}%</span>
+                                            <span className="text-[#A31D1D] font-black text-lg">{getTienDoHienThi()}%</span>
                                         </div>
                                         <div className="relative flex items-center justify-between w-full mt-2">
                                             {/* Dây nền xám */}
                                             <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 bg-gray-200 z-0"></div>
 
 
-                                            <div className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-[#A31D1D] z-0 transition-all duration-500" style={{ width: `${getProgressBarWidth()}%` }}></div>
+                                            <div className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-[#A31D1D] z-0 transition-all duration-500" style={{ width: `${getTienDoHienThi()}%` }}></div>
 
 
                                             <div className="z-10 flex flex-col items-center">

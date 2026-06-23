@@ -232,6 +232,19 @@ class DeTaiViewSet(BaseViewSet):
     def tu_choi_de_tai(self, request, pk=None):
         de_tai = self.get_object()
         de_tai.delete()
+        from .models import ThongBao
+    # Tìm sinh viên chủ nhiệm / trưởng nhóm của đề tài này 
+
+        sv_chu_nhiem = de_tai.sinh_viens.first() 
+        if sv_chu_nhiem: 
+            ThongBao.objects.create(
+                TenDangNhap=sv_chu_nhiem.TenDangNhap,
+                NoiDung=f"Thông báo: Đề tài đơn đăng ký '{de_tai.TenDeTai}' của nhóm bạn đã bị Cán bộ quản lý từ chối phê duyệt. Lý do: '{ly_do}'. Vui lòng rà soát lại quy chế và tiến hành đăng ký đề tài mới.",
+                Loai=ThongBao.LoaiThongBao.DE_TAI
+        ) 
+
+
+
         return Response({"message": "Đã từ chối đơn đăng ký. Đề tài đã bị loại bỏ, sinh viên có thể đăng ký đề tài mới."})
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -966,10 +979,16 @@ class BaoCaoViewSet(BaseViewSet):
     @action(detail=True, methods=["post"], url_path="chot-nghiem-thu")
     def chot_nghiem_thu(self, request, pk=None):
         bao_cao = self.get_object()
-        de_tai = bao_cao.MaDeTai
+        de_tai = DeTai.objects.get(pk=bao_cao.MaDeTai_id)
+        if bao_cao.DiemTrungBinh is not None:
+            raise ValidationError("Điểm đã được tổng hợp trước đó. Không thể tổng hợp lại.")
+
         
         # 1. Bắt lỗi: Chỉ chốt khi đang ở trạng thái chờ
-        if de_tai.TrangThai != DeTai.TrangThaiDeTai.CHONGHIEMTHU:
+        if de_tai.TrangThai not in [
+            DeTai.TrangThaiDeTai.CHONGHIEMTHU,
+            DeTai.TrangThaiDeTai.DANGHIEMTHU
+        ]:
             raise ValidationError("Đề tài này không ở trạng thái chờ nghiệm thu!")
 
 
@@ -1118,7 +1137,7 @@ from .serializers import DanhGiaChamDiemSerializer, DanhGiaXemSerializer
 
 
 class DanhGiaViewSet(BaseViewSet):
-
+    filterset_fields = ["MaDeTai", "MaHoiDong"]
     def get_serializer_class(self):
         if self.action == "create":
             return DanhGiaChamDiemSerializer
@@ -1355,11 +1374,37 @@ from .serializers import ThongBaoSerializer
 class ThongBaoViewSet(BaseViewSet):
     serializer_class = ThongBaoSerializer
     pagination_class = NhoPagination # Hiện khoảng 5-10 thông báo mỗi lần load
+    from rest_framework import status
+    from rest_framework.response import Response
+    from rest_framework.decorators import action
+    from rest_framework.exceptions import PermissionDenied
+
+
+
+    # 1. Hàm xóa từng thông báo (Ghi đè hàm destroy mặc định để bảo mật)
+    def destroy(self, request, *args, **kwargs):
+        thong_bao = self.get_object()
+        # Chặn không cho người này xóa thông báo của người khác
+        if thong_bao.TenDangNhap != request.user:
+            raise PermissionDenied("Bạn không có quyền xóa thông báo này.")
+        
+        self.perform_destroy(thong_bao)
+        return Response({"message": "Đã xóa thông báo thành công."}, status=status.HTTP_204_NO_CONTENT)
 
     def get_queryset(self):
         # Lọc thông minh: Ai đăng nhập thì chỉ thấy thông báo của người đó
         user = self.request.user
         return ThongBao.objects.filter(TenDangNhap_id=user.username)
+
+    # 2. Hàm dọn dẹp sạch sẽ (Xóa tất cả thông báo của user đang đăng nhập)
+    @action(detail=False, methods=['delete'], url_path='xoa-tat-ca')
+    def xoa_tat_ca(self, request):
+        from .models import ThongBao
+        # Quét và xóa toàn bộ thông báo thuộc về user này
+        so_luong, _ = ThongBao.objects.filter(TenDangNhap_id=request.user.username).delete()
+        return Response({
+            "message": f"Đã xóa toàn bộ {so_luong} thông báo."
+        }, status=status.HTTP_200_OK)
 
     # API phụ: Bấm nút "Đánh dấu đã đọc tất cả"
     @action(detail=False, methods=["post"], url_path="doc-het")
