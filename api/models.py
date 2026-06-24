@@ -81,7 +81,13 @@ class DeTai(models.Model):
         default=TrangThaiDeTai.CHODUYET,
         verbose_name="Trạng thái",
     )
-
+    # TruongNhom = models.ForeignKey(
+    #     'SinhVien', 
+    #     on_delete=models.SET_NULL, 
+    #     null=True, 
+    #     blank=True, 
+    #     related_name="de_tai_truong_nhom"
+    # )
     MaHoiDong = models.ForeignKey(        
         "HoiDong",
         on_delete=models.SET_NULL,

@@ -106,7 +106,7 @@ export default function TeacherDashboardPage() {
         try {
             // SỬA CHỖ NÀY: Gọi API /api/de-tai/.../tu-choi-gv/
             await sendRequest({
-                url: `http://localhost:8000/api/de-tai/${selectedTopic.MaDeTai}/tu-choi/`,
+                url: `http://localhost:8000/api/de-tai/${selectedTopic.MaDeTai}/tu-choi-gv/`,
                 method: 'PATCH'
             });
             messageApi.success('Đã từ chối nhận hướng dẫn đề tài này.');

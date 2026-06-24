@@ -30,6 +30,7 @@ export default function ManagerEvaluationControl() {
 
     // ================= 1. FETCH DANH SÁCH BÁO CÁO CHỜ NGHIỆM THU =================
     const fetchReportsData = async () => {
+        setDetailedScores({});
         setLoading(true);
         try {
             // Lấy toàn bộ báo cáo của các đề tài đang ở trạng thái CHONGHIEMTHU

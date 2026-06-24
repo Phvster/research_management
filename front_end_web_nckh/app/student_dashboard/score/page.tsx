@@ -62,11 +62,14 @@ export default function StudentScorePage() {
 
     // Helper tự động bốc nhãn Xếp loại theo điểm số (phòng hờ Backend chưa xử lý chuỗi chữ)
     const getXepLoaiDisplay = (score: number) => {
-        if (score >= 9.0) return { text: 'Xuất Sắc', color: 'purple' };
-        if (score >= 8.0) return { text: 'Giỏi', color: 'green' };
-        if (score >= 6.5) return { text: 'Khá', color: 'blue' };
-        if (score >= 5.0) return { text: 'Trung Bình', color: 'orange' };
-        return { text: 'Không Đạt', color: 'red' };
+        if (score >= 9.0) return { text: 'A+', color: 'purple' };
+        if (score >= 8.5) return { text: 'A', color: 'green' };
+        if (score >= 7.8) return { text: 'B+', color: 'blue' };
+        if (score >= 7) return { text: 'B', color: 'blue' };
+        if (score >= 2.4) return { text: 'C+', color: 'orange' };
+        if (score >= 2) return { text: 'C', color: 'orange' };
+        if (score >= 2.4) return { text: 'D+', color: 'red' };
+        return { text: 'F', color: 'red' };
     };
 
 
